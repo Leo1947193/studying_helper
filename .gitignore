@@ -1,3 +1,6 @@
 trash_bin/
 __pycache__/
 marxism_theory.pdf
+textbook_images_dir/
+textbook_text_dir/
+catalog.json
