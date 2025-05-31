@@ -10,34 +10,34 @@ import dashscope # 假设已安装: pip install dashscope
 # --- 默认配置文件名 ---
 DEFAULT_CONFIG_FILENAME = "config.json" # 使用统一的配置文件名
 
-# --- LLM 提示 (PROMPT_TEXT_MERMAID_TEMPLATE 保持不变，为了简洁此处省略，实际代码中应包含它) ---
-PROMPT_TEXT_MERMAID_TEMPLATE = """
-你是一个专业的AI助手，擅长将文本内容总结为Mermaid格式的思维导图 (mindmap)。
-你将收到一个章节的标题和其完整的文本内容。
+# --- LLM 提示 (PROMPT_TEXT_SEGMENT_TEMPLATE 保持不变，为了简洁此处省略，实际代码中应包含它) ---
+PROMPT_TEXT_SEGMENT_TEMPLATE = """
+你是一位专业的AI文本分析助手，擅长从学术文本中提炼核心知识。
+你将收到一个章节的标题和其完整的文本内容。该文本内容可能包含一些OCR引入的无关信息（如页眉、页脚、页码）或一些不影响核心语义的冗余表达。
 
 你的任务是：
-1.  阅读并理解提供的章节文本内容。
-2.  为该章节内容创建一个详细的Mermaid思维导图。思维导图应该以 `mindmap` 关键字开始，并遵循Mermaid的mindmap语法，其中**层级关系通过缩进表示**。
-3.  将生成的Mermaid代码嵌入到一个JSON对象中。
+1.  **文本预处理与清理**:
+    * 仔细阅读提供的章节文本。
+    * **移除** 明显无助于理解核心内容的文本，例如：重复的页眉、页脚、孤立的页码、不连贯的OCR错误片段，以及对核心知识点贡献极小的非常简短或不完整的句子。目标是得到一段更精炼、专注于核心论述的文本。
+2.  **语义切分与知识点提取**:
+    * 在清理后的文本基础上，进行语义切分，将其分解为独立的、有意义的知识单元。
+    * **提取核心知识点**。每个知识点应该是对一个概念、原理、论点或重要事实的清晰、简洁的陈述。
+3.  **JSON格式输出**:
+    * 将处理结果以指定的JSON格式输出。
 
-你必须严格按照以下JSON格式输出。JSON对象中的 `chapter`，`name`，`actual_starting_page` 和 `actual_ending_page` 字段的值会由系统提供，你只需要专注于生成准确的 `mermaid_code`。
-
-**Mermaid代码生成规则 (非常重要):**
--   在 `mermaid_code` 字符串中，**必须使用 `\\n` 来表示换行符**。
--   在 `mermaid_code` 字符串中，**必须使用 `\\t` 来表示每个层级的缩进 (一个制表符)**。例如，一级子节点前有一个 `\\t`，二级子节点前有两个 `\\t\\t`，以此类推。
--   Mermaid代码本身不应包含文字 `\\n` 或 `\\t`，而是这些字符的转义表示，以便它们在JSON字符串中正确表示实际的换行和制表符。
-
-JSON输出格式示例:
+你必须严格按照以下JSON格式输出。JSON对象中的 `chapter_id` 和 `chapter_name` 字段的值会由系统提供，你只需要专注于生成 `knowledge_points`。
 {{
-  "chapter": "{chapter_identifier_placeholder}",
-  "name": "{chapter_name_placeholder}",
-  "actual_starting_page": "{start_file_placeholder}",
-  "actual_ending_page": "{end_file_placeholder}",
-  "mermaid_code": "mindmap\\n\\troot(({chapter_name_placeholder}))\\n\\t\\t主要观点1\\n\\t\\t\\t子观点1.1\\n\\t\\t\\t\\t子观点1.1.1\\n\\t\\t主要观点2\\n\\t\\t\\t子观点2.1\\n\\t\\t\\t子观点2.2"
+  "chapter_id": "{chapter_identifier_placeholder}",
+  "chapter_name": "{chapter_name_placeholder}",
+  "knowledge_points": [
+    "知识点1：对某个概念的定义或解释。",
+    "知识点2：关于某个原理的详细阐述。",
+    "知识点3：一个重要的论点或事实总结。"
+  ]
 }}
 
 请确保：
-- `mermaid_code` 字段中的Mermaid代码是一个有效的、表示思维导图的字符串，严格遵循上述换行和缩进规则。
+- `knowledge_points` 是一个字符串列表，每个字符串是一个独立的知识点。
 - 整个回复 **只有** 这个JSON对象，不包含任何其他文本、解释或Markdown代码块标记。
 
 章节标题是: "{chapter_name_placeholder}"
@@ -45,14 +45,14 @@ JSON输出格式示例:
 ---
 {chapter_content_placeholder}
 ---
-请生成上述内容的Mermaid思维导图，并按指定JSON格式返回。
+请对上述内容进行处理，并按指定JSON格式返回。
 """
 
 # --- 辅助函数 ---
 
-def load_mermaid_config(config_file_path: Path) -> Optional[Dict]:
+def load_segmenter_config(config_file_path: Path) -> Optional[Dict]:
     """
-    从指定的 JSON 文件加载 Mermaid 生成相关的配置。
+    从指定的 JSON 文件加载分段与知识点提取相关的配置。
 
     Args:
         config_file_path (Path): 配置文件的完整路径。
@@ -60,27 +60,27 @@ def load_mermaid_config(config_file_path: Path) -> Optional[Dict]:
     Returns:
         Optional[Dict]: 如果加载成功则返回配置字典，否则返回 None。
     """
-    print(f"正在从 '{config_file_path}' 加载 Mermaid 生成配置...")
+    print(f"正在从 '{config_file_path}' 加载分段器配置...")
     try:
         with open(config_file_path, 'r', encoding='utf-8') as f:
             config_data = json.load(f)
 
-        # 验证 Mermaid 脚本所需的键是否存在且类型正确
+        # 验证分段器脚本所需的键是否存在且类型正确
         required_keys = {
-            "text_dir": str,      # 作为此脚本的文本输入目录
-            "catalog": str, # 作为此脚本的目录输入文件
-            "mermaid_dir": str,
+            "text_dir": str,             # 作为此脚本的文本输入目录名
+            "catalog": str,        # 作为此脚本的目录输入文件名
+            "catalog_segments": str, # 此脚本的输出文件名
             "llm_model": str
         }
         for key, expected_type in required_keys.items():
             if key not in config_data:
-                print(f"错误：配置文件 '{config_file_path}' 中缺少键 '{key}' (Mermaid配置需要)。", file=sys.stderr)
+                print(f"错误：配置文件 '{config_file_path}' 中缺少键 '{key}' (分段器配置需要)。", file=sys.stderr)
                 return None
             if not isinstance(config_data[key], expected_type):
                 print(f"错误：配置文件 '{config_file_path}' 中键 '{key}' 的类型不正确。期望类型：{expected_type}, 实际类型：{type(config_data[key])}。", file=sys.stderr)
                 return None
         
-        print("Mermaid 生成配置加载成功。")
+        print("分段器配置加载成功。")
         return config_data
     except FileNotFoundError:
         print(f"错误：配置文件 '{config_file_path}' 未找到。请创建该文件。", file=sys.stderr)
@@ -119,7 +119,6 @@ def save_json_data(data: Optional[Dict], output_file: Path, message_prefix: str 
     if data is None:
         print(f"警告: {message_prefix} 数据为 None，不保存文件 {output_file}。", file=sys.stderr)
         return False
-        
     try:
         output_file.parent.mkdir(parents=True, exist_ok=True) # 确保输出目录存在
         with open(output_file, 'w', encoding='utf-8') as f:
@@ -242,94 +241,103 @@ def get_text_content_for_leaf(leaf_node: Dict, all_text_files: List[Path]) -> Op
         print(f"获取 '{leaf_node.get('name')}' 的文本内容时出错: {e}", file=sys.stderr)
         return None
 
-
-def process_chapters_recursive(chapters: List[Dict], all_text_files: List[Path], mermaid_output_base_path: Path, api_key: str, llm_model_for_mermaid: str, parent_chapter_id: str = ""):
+def process_chapters_for_segmentation(
+    chapter_nodes: List[Dict], # 此列表的元素将被直接修改
+    all_text_files: List[Path],
+    api_key: str,
+    llm_model_for_segmentation: str,
+    parent_chapter_id: str = ""
+    ):
     """
-    递归遍历章节，处理叶节点以生成 Mermaid 代码。
+    递归遍历章节，处理叶节点以进行分段，并将 knowledge_points 就地添加到 chapter_nodes 中。
     """
-    for i, chapter_data in enumerate(chapters):
-        current_index = str(chapter_data.get("index", i + 1))
-        current_chapter_id = f"{parent_chapter_id}{'.' if parent_chapter_id else ''}{current_index}"
-        chapter_name = chapter_data.get("name", f"未知章节 {current_chapter_id}")
+    for i, chapter_data_node in enumerate(chapter_nodes): # chapter_data_node 是对 catalog_data 中元素的引用
+        current_index_val = chapter_data_node.get("index")
+        current_index_str = str(current_index_val) if current_index_val is not None else str(i + 1) # 如果没有index，则使用列表索引
+        
+        current_chapter_id = f"{parent_chapter_id}{'.' if parent_chapter_id else ''}{current_index_str}"
+        chapter_name = chapter_data_node.get("name", f"未知章节 {current_chapter_id}")
 
-        if chapter_data.get("type") == "leaf":
-            print(f"\n--- 正在处理叶节点: {current_chapter_id} - {chapter_name} ---")
-            leaf_content = get_text_content_for_leaf(chapter_data, all_text_files)
+        if chapter_data_node.get("type") == "leaf":
+            print(f"\n--- 正在处理叶节点进行分段: {current_chapter_id} - {chapter_name} ---")
+            leaf_content = get_text_content_for_leaf(chapter_data_node, all_text_files)
             
             if not leaf_content:
-                print(f"未能获取叶节点 '{chapter_name}' 的内容，跳过。", file=sys.stderr)
+                print(f"未能获取叶节点 '{chapter_name}' 的内容，为该节点添加空知识点列表。", file=sys.stderr)
+                chapter_data_node["knowledge_points"] = [] # 如果没有内容，则添加空列表
                 continue
 
-            start_file = chapter_data.get("actual_starting_page", "未知")
-            end_file = chapter_data.get("actual_ending_page", "未知")
-
             # 准备包含所有占位符已填充的完整系统提示
-            final_system_prompt = PROMPT_TEXT_MERMAID_TEMPLATE.replace("{chapter_identifier_placeholder}", current_chapter_id)
-            final_system_prompt = final_system_prompt.replace("{chapter_name_placeholder}", chapter_name) # 用于JSON和Mermaid根节点
-            final_system_prompt = final_system_prompt.replace("{start_file_placeholder}", start_file)
-            final_system_prompt = final_system_prompt.replace("{end_file_placeholder}", end_file)
+            final_system_prompt = PROMPT_TEXT_SEGMENT_TEMPLATE.replace("{chapter_identifier_placeholder}", current_chapter_id)
+            final_system_prompt = final_system_prompt.replace("{chapter_name_placeholder}", chapter_name)
             final_system_prompt = final_system_prompt.replace("{chapter_content_placeholder}", leaf_content)
             
-            # 将LLM模型名称传递给调用函数
-            llm_response_str = call_llm_dashscope_text(api_key, final_system_prompt, llm_model_for_mermaid)
-            mermaid_json_data = parse_json_from_llm(llm_response_str)
+            # 将 LLM 模型名称传递给调用函数
+            llm_response_str = call_llm_dashscope_text(api_key, final_system_prompt, llm_model_for_segmentation)
+            segmentation_json_data = parse_json_from_llm(llm_response_str)
 
-            if mermaid_json_data:
-                # 验证LLM是否包含了正确的元数据 (它应该包含，但检查一下总是好的)
-                if mermaid_json_data.get("chapter") != current_chapter_id:
-                    print(f"警告: LLM返回的chapter_id '{mermaid_json_data.get('chapter')}' 与期望的 '{current_chapter_id}' 不符。将使用期望值。")
-                    mermaid_json_data["chapter"] = current_chapter_id
-                if mermaid_json_data.get("name") != chapter_name:
-                     mermaid_json_data["name"] = chapter_name # 使用我们已知的名称
-                mermaid_json_data["actual_starting_page"] = start_file # 确保使用我们已知的值
-                mermaid_json_data["actual_ending_page"] = end_file
-
-                # 文件名中的点替换为下划线，以避免潜在的文件系统问题
-                safe_chapter_id = current_chapter_id.replace('.', '_')
-                output_filename = mermaid_output_base_path / f"{safe_chapter_id}.json"
-                save_json_data(mermaid_json_data, output_filename, f"Mermaid数据 ({current_chapter_id})")
+            if segmentation_json_data and "knowledge_points" in segmentation_json_data:
+                # 直接在原始节点中添加/更新 knowledge_points
+                kps = segmentation_json_data.get("knowledge_points", [])
+                if isinstance(kps, list) and all(isinstance(kp, str) for kp in kps):
+                    chapter_data_node["knowledge_points"] = kps
+                    print(f"信息: 已为章节 '{chapter_name}' 添加了 {len(kps)} 个知识点。")
+                else:
+                    chapter_data_node["knowledge_points"] = []
+                    print(f"警告: LLM为章节 '{chapter_name}' 返回的 'knowledge_points' 不是字符串列表。已添加空列表。", file=sys.stderr)
             else:
-                print(f"未能为章节 '{chapter_name}' 生成或解析Mermaid JSON。", file=sys.stderr)
-                # 尝试保存LLM的原始输出以供调试
-                error_output_path = mermaid_output_base_path / f"{current_chapter_id.replace('.', '_')}.llm_error_output.txt"
-                try:
-                    with open(error_output_path, 'w', encoding='utf-8')as f_err:
-                        f_err.write(f"LLM Output for chapter {current_chapter_id} that failed parsing:\n{llm_response_str}")
-                    print(f"LLM 的原始错误输出已保存到: {error_output_path}")
-                except Exception as e_save:
-                    print(f"保存 LLM 错误输出时也发生错误: {e_save}", file=sys.stderr)
+                chapter_data_node["knowledge_points"] = [] # 如果此叶节点的 LLM 失败，则添加空列表
+                print(f"未能为章节 '{chapter_name}' 生成或解析分段JSON（或缺少knowledge_points）。添加空知识点列表。", file=sys.stderr)
+                # 尝试保存 LLM 的原始输出以供调试
+                # (可以考虑添加一个调试标志来控制这个行为)
+                # error_output_path = Path(f"debug_llm_output_segment_{current_chapter_id.replace('.', '_')}.txt")
+                # try:
+                # with open(error_output_path, 'w', encoding='utf-8')as f_err:
+                # f_err.write(f"LLM Output for chapter {current_chapter_id} that failed parsing (segmentation):\n{llm_response_str}")
+                # print(f"LLM 的原始错误输出已保存到: {error_output_path}")
+                # except Exception as e_save:
+                # print(f"保存 LLM 错误输出时也发生错误: {e_save}", file=sys.stderr)
 
 
-        elif "children" in chapter_data and isinstance(chapter_data["children"], list):
-            process_chapters_recursive(chapter_data["children"], all_text_files, mermaid_output_base_path, api_key, llm_model_for_mermaid, current_chapter_id)
+        elif "children" in chapter_data_node and isinstance(chapter_data_node["children"], list):
+            process_chapters_for_segmentation(
+                chapter_data_node["children"], # 将子列表传递以进行递归修改
+                all_text_files,
+                api_key,
+                llm_model_for_segmentation,
+                current_chapter_id
+            )
+        # 对于非叶子的 'tree' 节点，我们不直接从 LLM 添加 'knowledge_points'
+        # 根据指令 "knowledge_points will only be in the smallest unit chapter"
 
 # --- 主函数 ---
 def main_orchestrator(config: Dict, script_dir_path: Path):
     """
-    使用加载的配置来编排 Mermaid 代码生成过程。
+    使用加载的配置来编排文本分段和知识点提取过程。
     """
-    print("开始生成Mermaid代码过程...")
+    print("开始文本分段和知识点提取过程 (并整合到目录结构)...")
     dashscope_api_key = os.getenv('DASHSCOPE_API_KEY') # API密钥仍从环境变量获取
     if not dashscope_api_key:
-        print("致命错误: 环境变量 DASHSCOPE_API_KEY 未设置。", file=sys.stderr)
+        print("致命错误: 环境变量 DASHSCOPE_API_KEY 未设置。程序无法执行LLM调用。", file=sys.stderr)
         return
 
     # 从配置中获取值
-    text_dir_name_from_config = config["text_dir"] # 使用 config.json 中的 texts_output_dir
-    catalog_input_filename_from_config = config["catalog"]
-    mermaid_output_dir_name_from_config = config["mermaid_dir"]
-    llm_model_for_mermaid = config["llm_model"]
+    text_dir_name_from_config = config["text_dir"]
+    input_catalog_filename_from_config = config["catalog"]
+    final_output_filename_from_config = config["catalog_segments"]
+    llm_model_for_segmentation = config["llm_model"]
 
     # 构建路径
     text_dir_full_path = script_dir_path / text_dir_name_from_config
-    input_catalog_json_full_path = script_dir_path / catalog_input_filename_from_config
-    mermaid_output_full_path = script_dir_path / mermaid_output_dir_name_from_config
-
+    input_catalog_json_full_path = script_dir_path / input_catalog_filename_from_config
+    final_output_json_full_path = script_dir_path / final_output_filename_from_config
+    
     print(f"脚本目录: {script_dir_path}")
     print(f"文本目录 (来自配置): {text_dir_full_path}")
-    print(f"目录输入文件 (来自配置): {input_catalog_json_full_path}")
-    print(f"Mermaid输出目录 (来自配置): {mermaid_output_full_path}")
-    print(f"用于Mermaid的LLM模型 (来自配置): {llm_model_for_mermaid}")
+    print(f"输入目录JSON (来自配置): {input_catalog_json_full_path}")
+    print(f"最终输出JSON (来自配置): {final_output_json_full_path}")
+    print(f"用于分段的LLM模型 (来自配置): {llm_model_for_segmentation}")
+
 
     if not input_catalog_json_full_path.exists():
         print(f"错误: 输入的目录JSON文件 '{input_catalog_json_full_path}' 未找到。", file=sys.stderr)
@@ -342,7 +350,7 @@ def main_orchestrator(config: Dict, script_dir_path: Path):
     # 加载目录结构
     try:
         with open(input_catalog_json_full_path, 'r', encoding='utf-8') as f:
-            catalog_data = json.load(f)
+            catalog_data = json.load(f) # 这将被就地修改
         print(f"成功加载目录结构从 '{input_catalog_json_full_path}'")
     except Exception as e:
         print(f"加载目录JSON文件 '{input_catalog_json_full_path}' 时出错: {e}", file=sys.stderr)
@@ -351,18 +359,33 @@ def main_orchestrator(config: Dict, script_dir_path: Path):
     all_text_files = list_text_files(text_dir_full_path)
     if not all_text_files:
         print(f"错误: 在文本目录 '{text_dir_full_path}' 中未找到任何文本文件。", file=sys.stderr)
+        # 即使没有文本文件，也可能希望保存原始目录结构（不含知识点）
+        # 但当前逻辑依赖于文本文件来处理叶节点，所以这里返回是合理的
+        save_json_data(catalog_data, final_output_json_full_path, "原始目录（无文本文件处理知识点）")
         return
 
-    # 创建输出目录
-    mermaid_output_full_path.mkdir(parents=True, exist_ok=True)
-
-    # 处理章节
-    if "chapters" in catalog_data and isinstance(catalog_data["chapters"], list) :
-        process_chapters_recursive(catalog_data["chapters"], all_text_files, mermaid_output_full_path, dashscope_api_key, llm_model_for_mermaid)
+    # 处理章节 - 这将直接修改 catalog_data
+    if "chapters" in catalog_data and isinstance(catalog_data["chapters"], list):
+        process_chapters_for_segmentation(
+            catalog_data["chapters"], 
+            all_text_files, 
+            dashscope_api_key, 
+            llm_model_for_segmentation
+        )
     else:
         print("错误: 加载的目录数据中未找到 'chapters' 键或其不是列表。", file=sys.stderr)
+        # 即使目录结构不符合预期，也尝试保存它
+        save_json_data(catalog_data, final_output_json_full_path, "部分目录（'chapters'键缺失或无效）")
+        return 
 
-    print("\nMermaid代码生成过程完成。")
+    # 将修改后的 catalog_data 保存到最终输出文件
+    if catalog_data: # 确保 catalog_data 不是 None
+        save_json_data(catalog_data, final_output_json_full_path, "包含知识点的完整目录")
+    else:
+        # 这种情况理论上不应该发生，因为如果 catalog_data 为 None，上面就会返回
+        print("警告: 未生成任何分段数据，因为 catalog_data 为空。")
+
+    print("\n文本分段和知识点提取过程完成。")
 
 if __name__ == "__main__":
     try:
@@ -373,9 +396,10 @@ if __name__ == "__main__":
     
     # 加载配置
     config_path = current_script_dir / DEFAULT_CONFIG_FILENAME
-    app_config = load_mermaid_config(config_path)
+    app_config = load_segmenter_config(config_path)
 
     if app_config:
         main_orchestrator(app_config, current_script_dir)
     else:
-        print("由于配置加载失败，Mermaid代码生成流程无法启动。")
+        print("由于配置加载失败，文本分段和知识点提取流程无法启动。")
+

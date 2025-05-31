@@ -5,24 +5,16 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple
 import sys
 
-import dashscope
+import dashscope # 假设已安装: pip install dashscope
 
-# --- Configuration ---
-SCRIPT_DIR = Path(__file__).parent.resolve()
-TEXT_DIR_NAME = 'text_dir'
-RESULT_JSON_NAME = 'result.json' # Final output name
+# --- 默认配置文件名 ---
+DEFAULT_CONFIG_FILENAME = "config.json" # 您可以更改为 "config.json" 如果希望所有脚本共用一个
 
-DEFAULT_TEXT_DIR = SCRIPT_DIR / TEXT_DIR_NAME
-DEFAULT_RESULT_JSON = SCRIPT_DIR / RESULT_JSON_NAME
-
-DEFAULT_NUM_PAGES = 20
-DASHSCOPE_API_KEY = os.getenv('DASHSCOPE_API_KEY')
-LLM_MODEL = 'qwen-max'
-
-# --- Prompt for Step 1: Get Structure & First Leaf Start File ---
+# --- LLM 提示 ---
+# (PROMPT_TEXT_OFFSET_STRATEGY 保持不变，为了简洁此处省略，实际代码中应包含它)
 PROMPT_TEXT_OFFSET_STRATEGY = """
 你是一个专业的助手，擅长分析文本文档并提取结构化信息。
-你将收到来自一本书前20页（很可能是目录或索引）的 **文本内容**。
+你将收到来自一本书前N页（很可能是目录或索引，N会由配置指定）的 **文本内容**。
 文本内容会以 `--- 内容来自文本文件 {文件名} ---` 的格式进行分隔。
 你的任务是仔细分析这些文本，并提取出目录的层次结构，包括 **章节标题** 和 **文本中的页码**。
 
@@ -47,9 +39,56 @@ JSON结构应如下所示（注意只有第一个leaf节点可能有 actual_star
 - 请在你的回复中 **只提供 JSON 对象**。
 """
 
-# --- Helper Functions (File I/O) ---
+# --- 辅助函数 ---
+
+def load_app_config(config_file_path: Path) -> Optional[Dict]:
+    """
+    从指定的 JSON 文件加载应用配置。
+
+    Args:
+        config_file_path (Path): 配置文件的完整路径。
+
+    Returns:
+        Optional[Dict]: 如果加载成功则返回配置字典，否则返回 None。
+    """
+    print(f"正在从 '{config_file_path}' 加载应用配置...")
+    try:
+        with open(config_file_path, 'r', encoding='utf-8') as f:
+            config_data = json.load(f)
+
+        # 验证必要的键是否存在且类型正确
+        required_keys = {
+            "text_dir": str,
+            "catalog": str,
+            "pages_for_catalog": int,
+            "llm_model": str
+        }
+        for key, expected_type in required_keys.items():
+            if key not in config_data:
+                print(f"错误：配置文件 '{config_file_path}' 中缺少键 '{key}'。", file=sys.stderr)
+                return None
+            if not isinstance(config_data[key], expected_type):
+                print(f"错误：配置文件 '{config_file_path}' 中键 '{key}' 的类型不正确。期望类型：{expected_type}, 实际类型：{type(config_data[key])}。", file=sys.stderr)
+                return None
+        
+        if not 0 < config_data["pages_for_catalog"] < 200: # 对页数进行合理性检查
+             print(f"警告：配置的 'pages_for_catalog' ({config_data['pages_for_catalog']}) 可能不合理。请检查配置。", file=sys.stderr)
+
+
+        print("应用配置加载成功。")
+        return config_data
+    except FileNotFoundError:
+        print(f"错误：配置文件 '{config_file_path}' 未找到。请创建该文件。", file=sys.stderr)
+        return None
+    except json.JSONDecodeError as e:
+        print(f"错误：解析配置文件 '{config_file_path}' 失败：{e}", file=sys.stderr)
+        return None
+    except Exception as e:
+        print(f"加载配置文件时发生未知错误：{e}", file=sys.stderr)
+        return None
+
 def list_text_files(text_dir_path: Path) -> List[Path]:
-    """Lists and sorts all text files (page*.txt)."""
+    """列出并排序所有文本文件 (page*.txt)。"""
     try:
         all_txts = sorted([
             f for f in text_dir_path.glob("page*.txt")
@@ -62,7 +101,7 @@ def list_text_files(text_dir_path: Path) -> List[Path]:
         return []
 
 def read_text_file(file_path: Path) -> Optional[str]:
-    """Reads a text file and returns its content."""
+    """读取文本文件并返回其内容。"""
     try:
         with open(file_path, 'r', encoding='utf-8') as f:
             return f.read()
@@ -70,14 +109,15 @@ def read_text_file(file_path: Path) -> Optional[str]:
         print(f"读取文件 {file_path} 时出错: {e}", file=sys.stderr)
         return None
 
-# --- LLM Interaction & Parsing ---
-def call_llm_dashscope_text(api_key: str, user_content: str, system_prompt: str) -> str:
-    """Generic function to call DashScope Generation API."""
-    if not api_key: return "ERROR:API_KEY_MISSING"
+def call_llm_dashscope_text(api_key: Optional[str], user_content: str, system_prompt: str, model_name: str) -> str:
+    """通用函数，用于调用 DashScope Generation API。"""
+    if not api_key:
+        print("错误：DASHSCOPE_API_KEY 未提供或为空。", file=sys.stderr)
+        return "ERROR:API_KEY_MISSING"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}]
-    print(f"\n--- 正在调用文本模型: {LLM_MODEL} ---")
+    print(f"\n--- 正在调用文本模型: {model_name} ---")
     try:
-        response = dashscope.Generation.call(api_key=api_key, model=LLM_MODEL, messages=messages, result_format='message', stream=False)
+        response = dashscope.Generation.call(api_key=api_key, model=model_name, messages=messages, result_format='message', stream=False)
         if response.status_code == 200 and response.output and response.output.choices:
             raw_text = response.output.choices[0].message.content
             print(f"LLM响应 (前200字符): {raw_text[:200]}...")
@@ -92,14 +132,18 @@ def call_llm_dashscope_text(api_key: str, user_content: str, system_prompt: str)
         print("--- 结束LLM调用 ---")
 
 def parse_json_from_llm(llm_output: str) -> Optional[Dict]:
-    """Cleans and parses JSON from LLM output."""
+    """清理并解析来自 LLM 输出的 JSON。"""
     if not llm_output or llm_output.startswith("ERROR:"):
         print(f"LLM调用失败或无输出: {llm_output}", file=sys.stderr)
         return None
 
     print("--- 开始清理并解析 LLM 输出 ---")
-    cleaned_string = llm_output.replace("```json", "").replace("```", "").strip()
-    cleaned_string = re.sub(r'^json\s*', '', cleaned_string).strip()
+    # 移除常见的Markdown代码块标记
+    cleaned_string = re.sub(r"```json\s*", "", llm_output, flags=re.IGNORECASE).strip()
+    cleaned_string = re.sub(r"```\s*$", "", cleaned_string).strip()
+    # 移除可能存在于开头的 "json" 关键字
+    cleaned_string = re.sub(r'^json\s*', '', cleaned_string, flags=re.IGNORECASE).strip()
+    
     first_brace = cleaned_string.find('{')
     last_brace = cleaned_string.rfind('}')
 
@@ -118,140 +162,228 @@ def parse_json_from_llm(llm_output: str) -> Optional[Dict]:
         print(f"--- LLM 原始输出 --- \n{llm_output}\n------------------------")
         return None
 
-# --- New Offset Calculation Logic ---
+# --- 偏移量计算逻辑 ---
 
 def _find_first_leaf_recursive(nodes: List[Dict]) -> Optional[Dict]:
-    """Helper: Finds the very first leaf node in the structure."""
+    """辅助函数：在结构中找到第一个叶节点。"""
     for node in nodes:
         if node.get("type") == "leaf":
-            return node # Found the first one
+            return node # 找到第一个
         elif node.get("type") == "tree" and "children" in node and isinstance(node["children"], list):
             found = _find_first_leaf_recursive(node["children"])
             if found:
-                return found # Return it up the chain
+                return found # 将其向上传递
     return None
 
 def get_filename_number(filename: str) -> Optional[int]:
-    """Extracts the number (e.g., 9 from page0009.txt)."""
-    match = re.search(r'(\d{4})\.txt', filename)
+    """从文件名中提取数字 (例如, 从 page0009.txt 中提取 9)。"""
+    match = re.search(r'page(\d{4})\.txt', filename, re.IGNORECASE) # 忽略大小写
     return int(match.group(1)) if match else None
 
 def format_filename(number: int) -> str:
-    """Formats a number into pageXXXX.txt."""
+    """将数字格式化为 pageXXXX.txt。"""
     return f"page{number:04d}.txt"
 
 def _apply_offset_recursive(nodes: List[Dict], offset: int):
-    """Helper: Recursively applies offset to starting/ending pages."""
+    """辅助函数：递归地将偏移量应用于起始/结束页码。"""
     for node in nodes:
         try:
-            if "starting_page" in node and isinstance(node["starting_page"], int):
-                node["actual_starting_page"] = format_filename(node["starting_page"] + offset)
-            else:
-                 node["actual_starting_page"] = "UNKNOWN"
+            # 处理 starting_page
+            if "starting_page" in node and isinstance(node["starting_page"], (int, float)): # 允许浮点数以防万一
+                node["actual_starting_page"] = format_filename(int(node["starting_page"]) + offset)
+            elif "starting_page" in node: # 如果存在但不是数字
+                print(f"警告：节点 '{node.get('name', '未命名节点')}' 的 'starting_page' 不是有效数字 ({node['starting_page']})，无法应用偏移量。", file=sys.stderr)
+                node["actual_starting_page"] = "INVALID_PAGE_FORMAT"
+            else: # 如果不存在
+                node["actual_starting_page"] = "PAGE_NOT_SPECIFIED"
 
-            if "ending_page" in node and isinstance(node["ending_page"], int):
-                node["actual_ending_page"] = format_filename(node["ending_page"] + offset)
+            # 处理 ending_page
+            if "ending_page" in node and isinstance(node["ending_page"], (int, float)):
+                node["actual_ending_page"] = format_filename(int(node["ending_page"]) + offset)
+            elif "ending_page" in node:
+                print(f"警告：节点 '{node.get('name', '未命名节点')}' 的 'ending_page' 不是有效数字 ({node['ending_page']})，无法应用偏移量。", file=sys.stderr)
+                node["actual_ending_page"] = "INVALID_PAGE_FORMAT"
             else:
-                 node["actual_ending_page"] = "UNKNOWN"
+                node["actual_ending_page"] = "PAGE_NOT_SPECIFIED"
 
         except Exception as e:
-            print(f"警告: 应用偏移量时出错于节点 '{node.get('name')}': {e}", file=sys.stderr)
-            node["actual_starting_page"] = "ERROR"
-            node["actual_ending_page"] = "ERROR"
+            print(f"警告: 应用偏移量时出错于节点 '{node.get('name', '未命名节点')}': {e}", file=sys.stderr)
+            node["actual_starting_page"] = "OFFSET_ERROR"
+            node["actual_ending_page"] = "OFFSET_ERROR"
 
-        # Recurse if children exist
+        # 如果存在子节点，则递归
         if "children" in node and isinstance(node["children"], list):
             _apply_offset_recursive(node["children"], offset)
 
 
 def apply_offset_and_save(data: Dict, output_file: Path):
     """
-    Calculates the offset from the first leaf and applies it to all nodes,
-    then saves the result.
+    从第一个叶节点计算偏移量，并将其应用于所有节点，然后保存结果。
     """
     print("--- 步骤 2 & 3: 计算并应用页面偏移量 ---")
-    first_leaf = _find_first_leaf_recursive(data.get("chapters", []))
+    if not data or "chapters" not in data or not isinstance(data["chapters"], list):
+        print("错误：提供的目录数据无效或缺少 'chapters' 列表。", file=sys.stderr)
+        save_json_data(data if data else {}, output_file, "部分结果（数据无效）") # 尝试保存任何已有的数据
+        return
+
+    first_leaf = _find_first_leaf_recursive(data["chapters"])
 
     if not first_leaf:
         print("错误：未能在LLM输出中找到第一个叶节点。", file=sys.stderr)
-        save_json_data(data, output_file, "部分结果（无偏移量）")
+        save_json_data(data, output_file, "部分结果（无偏移量，未找到首叶）")
         return
 
-    toc_start_page = first_leaf.get("starting_page")
-    actual_start_file = first_leaf.get("actual_starting_page")
+    toc_start_page_val = first_leaf.get("starting_page")
+    actual_start_file_val = first_leaf.get("actual_starting_page") # LLM应该只为第一个叶节点提供这个
 
-    if not isinstance(toc_start_page, int) or not actual_start_file:
-        print(f"错误：第一个叶节点 '{first_leaf.get('name')}' 缺少 'starting_page' ({toc_start_page}) 或 'actual_starting_page' ({actual_start_file})。", file=sys.stderr)
-        save_json_data(data, output_file, "部分结果（无偏移量）")
+    if not isinstance(toc_start_page_val, int):
+        print(f"错误：第一个叶节点 '{first_leaf.get('name', '未命名节点')}' 的 'starting_page' 不是有效的整数 ({toc_start_page_val})。", file=sys.stderr)
+        save_json_data(data, output_file, "部分结果（无偏移量，页码无效）")
+        return
+    
+    if not actual_start_file_val or not isinstance(actual_start_file_val, str):
+        print(f"错误：第一个叶节点 '{first_leaf.get('name', '未命名节点')}' 缺少 'actual_starting_page' 字符串或其值无效 ({actual_start_file_val})。", file=sys.stderr)
+        print("       LLM 应已在步骤1中为第一个叶节点提供了 'actual_starting_page'。", file=sys.stderr)
+        save_json_data(data, output_file, "部分结果（无偏移量，起始文件缺失）")
         return
 
-    actual_start_number = get_filename_number(actual_start_file)
+    actual_start_number = get_filename_number(actual_start_file_val)
 
     if actual_start_number is None:
-        print(f"错误：无法从文件名 '{actual_start_file}' 中提取页码。", file=sys.stderr)
-        save_json_data(data, output_file, "部分结果（无偏移量）")
+        print(f"错误：无法从文件名 '{actual_start_file_val}' 中提取页码。", file=sys.stderr)
+        save_json_data(data, output_file, "部分结果（无偏移量，文件名解析失败）")
         return
 
-    offset = actual_start_number - toc_start_page
-    print(f"信息：计算出的页面偏移量为: {offset} (实际: {actual_start_number}, 目录: {toc_start_page})")
+    # 计算偏移量
+    # 偏移量 = 实际文件页码 - 目录中声称的页码
+    # 例如：如果目录说第1节从第5页开始，但内容实际在 page0008.txt (第8页)开始，则偏移量 = 8 - 5 = 3
+    # 那么目录中的第10页实际上是第 10 + 3 = 13 页，即 page0013.txt
+    offset = actual_start_number - toc_start_page_val
+    print(f"信息：计算出的页面偏移量为: {offset} (实际文件页码: {actual_start_number}, 目录声称页码: {toc_start_page_val})")
 
-    # Apply the offset to all nodes
-    _apply_offset_recursive(data.get("chapters", []), offset)
+    # 应用偏移量到所有节点
+    _apply_offset_recursive(data["chapters"], offset)
     print("信息：偏移量已应用于所有节点。")
 
-    # Save the final result
+    # 保存最终结果
     save_json_data(data, output_file, "最终目录结果 (含偏移量)")
 
-# --- File Saving ---
-def save_json_data(data: Dict, output_file: Path, message_prefix: str = "数据"):
-    """Saves dictionary data to a JSON file."""
-    if not data:
-        print(f"警告: 没有 {message_prefix} 可保存至 {output_file}。", file=sys.stderr)
-        return False
+# --- 文件保存 ---
+def save_json_data(data: Optional[Dict], output_file: Path, message_prefix: str = "数据") -> bool:
+    """将字典数据保存到 JSON 文件。"""
+    if data is None: # 允许保存一个空的JSON对象，如果数据是None
+        print(f"警告: {message_prefix} 数据为 None，将尝试保存空JSON对象至 {output_file}。", file=sys.stderr)
+        data_to_save = {}
+    else:
+        data_to_save = data
+
     try:
+        output_file.parent.mkdir(parents=True, exist_ok=True) # 确保输出目录存在
         with open(output_file, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=4, ensure_ascii=False)
+            json.dump(data_to_save, f, indent=4, ensure_ascii=False)
         print(f"{message_prefix}已成功保存到 '{output_file}'")
         return True
     except Exception as e:
         print(f"保存文件 '{output_file}' 时出错: {e}", file=sys.stderr)
         return False
 
-# --- Main Function ---
-def main():
+# --- 主函数 ---
+def main_orchestrator(config: Dict, script_dir_path: Path):
+    """
+    使用加载的配置来编排目录提取过程。
+    """
     print("开始提取目录过程 (偏移量策略)...")
-    if not DASHSCOPE_API_KEY:
-        print("致命错误: DASHSCOPE_API_KEY 未设置。", file=sys.stderr)
+    
+    dashscope_api_key = os.getenv('DASHSCOPE_API_KEY') # API密钥仍从环境变量获取
+    if not dashscope_api_key:
+        print("致命错误: 环境变量 DASHSCOPE_API_KEY 未设置。", file=sys.stderr)
         return
 
-    print(f"脚本目录: {SCRIPT_DIR}")
-    print(f"文本目录: {DEFAULT_TEXT_DIR}")
-    print(f"结果文件: {DEFAULT_RESULT_JSON}")
+    # 从配置中获取值
+    text_dir_name = config["text_dir"]
+    catalog_output_filename = config["catalog"]
+    pages_for_catalog = config["pages_for_catalog"]
+    llm_model_name = config["llm_model"]
 
-    if not DEFAULT_TEXT_DIR.is_dir():
-       print(f"错误: 文本目录 '{TEXT_DIR_NAME}' 未找到。", file=sys.stderr)
-       return
+    # 构建路径
+    text_dir_full_path = script_dir_path / text_dir_name
+    result_json_full_path = script_dir_path / catalog_output_filename
 
-    all_text_paths = list_text_files(DEFAULT_TEXT_DIR)
-    if not all_text_paths: return
+    print(f"脚本目录: {script_dir_path}")
+    print(f"文本目录 (来自配置): {text_dir_full_path}")
+    print(f"结果文件 (来自配置): {result_json_full_path}")
+    print(f"用于目录的页数 (来自配置): {pages_for_catalog}")
+    print(f"LLM 模型 (来自配置): {llm_model_name}")
 
-    text_paths_to_send = all_text_paths[:DEFAULT_NUM_PAGES]
-    print(f"将使用 {len(text_paths_to_send)} 个文本文件发送给 LLM。")
-    combined_content_parts = [f"--- 内容来自文本文件 {p.name} ---\n{read_text_file(p) or '[读取失败]'}" for p in text_paths_to_send]
+
+    if not text_dir_full_path.is_dir():
+        print(f"错误: 文本目录 '{text_dir_full_path}' 未找到。", file=sys.stderr)
+        return
+
+    all_text_paths = list_text_files(text_dir_full_path)
+    if not all_text_paths:
+        print(f"在目录 '{text_dir_full_path}' 中未找到符合格式的文本文件。程序退出。")
+        return
+
+    text_paths_to_send = all_text_paths[:pages_for_catalog]
+    if not text_paths_to_send:
+        print(f"警告：没有足够的文本文件可供发送给 LLM (需要 {pages_for_catalog} 页，找到 {len(all_text_paths)} 页)。", file=sys.stderr)
+        # 即使页数不足，也尝试继续，LLM 也许能处理
+    
+    print(f"将使用 {len(text_paths_to_send)} 个文本文件（最多 {pages_for_catalog} 页）发送给 LLM。")
+    
+    combined_content_parts = []
+    for p in text_paths_to_send:
+        content = read_text_file(p)
+        if content is None:
+            print(f"警告：读取文件 {p.name} 失败，将跳过此文件内容。", file=sys.stderr)
+            combined_content_parts.append(f"--- 内容来自文本文件 {p.name} ---\n[错误：无法读取文件内容]")
+        else:
+            combined_content_parts.append(f"--- 内容来自文本文件 {p.name} ---\n{content}")
+
+    if not combined_content_parts:
+        print("错误：未能读取任何文本文件内容以发送给 LLM。程序退出。", file=sys.stderr)
+        return
+        
     full_text_content = "\n\n".join(combined_content_parts)
 
-    # --- Step 1: Get Structure & First Leaf Start ---
+    # --- 步骤 1: 获取结构和首叶起始页 ---
     print("\n--- 步骤 1: 获取结构和首叶起始页 ---")
-    llm_output = call_llm_dashscope_text(DASHSCOPE_API_KEY, full_text_content, PROMPT_TEXT_OFFSET_STRATEGY)
+    # PROMPT_TEXT_OFFSET_STRATEGY 是全局定义的
+    # 将配置中的 LLM 模型名称传递给调用函数
+    llm_output = call_llm_dashscope_text(dashscope_api_key, full_text_content, PROMPT_TEXT_OFFSET_STRATEGY, llm_model_name)
     initial_structure = parse_json_from_llm(llm_output)
+    
     if not initial_structure:
-        print("步骤 1 失败，程序退出。")
+        print("步骤 1 失败：未能从 LLM 获取或解析有效的初始目录结构。程序退出。", file=sys.stderr)
+        # 尝试保存 LLM 的原始输出以供调试
+        error_output_path = result_json_full_path.with_suffix(".llm_error_output.txt")
+        try:
+            with open(error_output_path, 'w', encoding='utf-8')as f_err:
+                f_err.write(f"LLM Output that failed parsing:\n{llm_output}")
+            print(f"LLM 的原始错误输出已保存到: {error_output_path}")
+        except Exception as e_save:
+            print(f"保存 LLM 错误输出时也发生错误: {e_save}", file=sys.stderr)
         return
 
-    # --- Step 2 & 3: Calculate Offset & Apply ---
-    apply_offset_and_save(initial_structure, DEFAULT_RESULT_JSON)
+    # --- 步骤 2 & 3: 计算偏移量并应用 ---
+    apply_offset_and_save(initial_structure, result_json_full_path)
 
     print("\n目录提取过程完成。")
 
 if __name__ == "__main__":
-    main()
+    try:
+        # 确定脚本所在的目录
+        current_script_dir = Path(__file__).parent.resolve()
+    except NameError: # 处理在某些IDE或直接执行时 __file__ 未定义的情况
+        current_script_dir = Path(os.getcwd()).resolve()
+    
+    # 加载配置
+    config_path = current_script_dir / DEFAULT_CONFIG_FILENAME
+    app_config = load_app_config(config_path)
+
+    if app_config:
+        main_orchestrator(app_config, current_script_dir)
+    else:
+        print("由于配置加载失败，目录提取流程无法启动。")
+
