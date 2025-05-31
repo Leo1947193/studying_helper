@@ -8,5 +8,3 @@ paddleocr==3.0.0
 faiss-gpu==1.9.0
 
 openai==1.63.2
-scikit-image==0.24.0
-scikit-learn==1.6.1
