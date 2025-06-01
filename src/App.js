@@ -1,20 +1,32 @@
 // notebook-frontend/src/App.js
+//TODO: 1. 拆分组件
+//TODO: 2. 设计homepage
+//TODO: 3. 优化样式
+//TODO: 4. 给其他人列TODO
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import {
-  Layout, Menu, Input, Button, Avatar, Dropdown, Space, List, Typography, Divider, Empty,
-  Upload, Card, Form, Select, Slider, Switch, notification, Tooltip, Spin, Modal, Tag,
-} from 'antd';
-import {
-  SearchOutlined, PlusOutlined, UserOutlined, MessageOutlined, FileOutlined, UploadOutlined,
-  SendOutlined, SettingOutlined, RobotOutlined, CopyOutlined, CheckOutlined, DownloadOutlined,
-} from '@ant-design/icons';
+import { Layout, notification } from 'antd'; // 仅保留Ant Design的布局和通知
 import './App.css';
 
-const { Header, Sider, Content } = Layout;
-const { Title, Text, Paragraph } = Typography;
-const { TextArea, Search } = Input;
-const { Option } = Select;
+import AppHeader from './components/Layout/AppHeader'; // 引入自定义的AppHeader组件
+import AppSider from './components/Layout/AppSider'; // 引入自定义的AppSider组件
+import SiderMenu from './components/Layout/SiderMenu'; // 引入自定义的SiderMenu组件
+import FileUploadForm from './components/Layout/FileUploadForm'; // 引入自定义的FileUploadForm组件
+import FilesPanel from './components/Layout/FilesPanel'; // 引入自定义的FilesPanel组件
+import ChatHistoryPanel from './components/Layout/ChatHistoryPanel'; // 引入自定义的ChatHistoryPanel组件
+import ChatMainContent from './components/Chat/ChatMainContent'; // 引入自定义的ChatMainContent组件
+import ChatHeader from './components/Chat/ChatHeader';
+import MessageList from './components/Chat/MessageList'; // 引入自定义的MessageList组件
+import ChatInputArea from './components/Chat/ChatInputArea';
+import GeneralTools from './components/Layout/GeneralTools'; // 引入通用工具组件
+import RightPanel from './components/Layout/RightPanel'; // 引入右侧面板组件
+import ChatSettingsForm from './components/Layout/ChatSettingsForm'; // 引入聊天设置表单组件
+import FilePreviewModal from './components/Modals/FilePreviewModal';// 引入文件预览模态框组件
+import CitationDetailModal from './components/Modals/CitationDetailModal'; // 引入引用详情模态框组件
+import TemplatesMethodsModal from './components/Modals/TemplatesMethodsModal'; // 引入答题方法和模板模态框组件
+
+
+const { Content } = Layout;
 
 // --- 后端 API 地址配置 ---
 const BACKEND_BASE_URL = 'http://localhost:5000/api';
@@ -75,7 +87,8 @@ function App() {
   const [currentCitationContent, setCurrentCitationContent] = useState('');
   const [currentCitationTitle, setCurrentCitationTitle] = useState('');
 
-  const messagesEndRef = useRef(null); // 用于自动滚动到底部
+  // messagesEndRef 不再需要在这里，它应该在 MessageList 或 ChatMainContent 内部使用
+  // const messagesEndRef = useRef(null);
 
   // --- API 调用函数 ---
 
@@ -196,10 +209,11 @@ function App() {
     }
   }, [isTemplatesModalVisible, fetchTemplatesMethods]); // 依赖于 isTemplatesModalVisible
 
-  // 自动滚动到底部
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  // messagesEndRef 逻辑现在在 ChatMainContent.js
+  // useEffect(() => {
+  //   messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  // }, [messages]);
+
 
   // --- 事件处理函数 ---
 
@@ -457,18 +471,23 @@ function App() {
     }
   };
 
-  const handleCopy = (text, index) => {
-    navigator.clipboard.writeText(text).then(() => {
-      setCopiedIndex(index);
-      setTimeout(() => setCopiedIndex(null), 2000); // 2秒后恢复
-      notification.success({message: "已复制到剪贴板！"});
-    }).catch(err => {
-      notification.error({message: "复制失败，请手动复制！"});
-      console.error('Failed to copy text: ', err);
-    });
-  };
+  // handleCopy 不再需要在这里，它现在在TemplatesMethodsModal.js 内部处理
+  // const handleCopy = (text, index) => {
+  //   navigator.clipboard.writeText(text).then(() => {
+  //     setCopiedIndex(index);
+  //     setTimeout(() => setCopiedIndex(null), 2000); // 2秒后恢复
+  //     notification.success({message: "已复制到剪贴板！"});
+  //   }).catch(err => {
+  //     notification.error({message: "复制失败，请手动复制！"});
+  //     console.error('Failed to copy text: ', err);
+  //   });
+  // };
+
 
   // --- UI 渲染数据 ---
+  // 从antd导入Icons
+  const { MessageOutlined, FileOutlined, SettingOutlined } = require('@ant-design/icons');
+
   const siderMenuItems = [
     { key: 'chat', icon: <MessageOutlined />, label: '对话历史' },
     { key: 'files', icon: <FileOutlined />, label: '我的文件' },
@@ -476,638 +495,116 @@ function App() {
     // 移除了 'templates' 菜单项，因为它现在由右侧的按钮触发Modal
   ];
 
+  
   const currentChatTitle = selectedChatId
     ? (chatHistory.find(c => c.id === selectedChatId)?.title || '加载中...')
     : '新的对话';
 
+    const handleNewChat = () => {
+    setSelectedChatId(null);
+    setMessages([]);
+    setRelatedFileIds([]);
+    setRelatedFilesMeta([]);
+    notification.info({ message: '开始新的对话！' });
+    setActivePane('chat');
+  };
+
+  const handleGlobalSearch = (value) => {
+    console.log('全局搜索:', value);
+  };
+
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      {/* 顶部 Header */}
-      <Header style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: '0 20px',
-        background: '#fff',
-        borderBottom: '1px solid #f0f0f0',
-        zIndex: 1,
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <Title level={3} style={{ margin: 0, marginRight: 30 }}>AI智能助手</Title>
-          <Search
-            placeholder="全局搜索"
-            onSearch={value => console.log('全局搜索:', value)}
-            style={{ width: 300 }}
-            allowClear
-          />
-        </div>
-        <Space>
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            onClick={() => {
-              setSelectedChatId(null);
-              setMessages([]);
-              setRelatedFileIds([]);
-              setRelatedFilesMeta([]);
-              notification.info({ message: '开始新的对话！' });
-              setActivePane('chat');
-            }}
-          >
-            新建对话
-          </Button>
-          <Dropdown
-            overlay={<Menu><Menu.Item key="profile">个人资料</Menu.Item><Menu.Item key="logout">退出</Menu.Item></Menu>}
-            placement="bottomRight"
-          >
-            <Avatar style={{ cursor: 'pointer' }} icon={<UserOutlined />} />
-          </Dropdown>
-        </Space>
-      </Header>
+      <AppHeader
+        onNewChat={handleNewChat}
+        onGlobalSearch={handleGlobalSearch}
+      />
 
-      {/* 主布局：左侧 Sider + 中间/右侧 Content */}
       <Layout style={{ flex: 1, minHeight: 0 }}>
-        {/* 左侧 Sider */}
-        <Sider
-          width={280}
-          style={{
-            background: '#fff',
-            borderRight: '1px solid #f0f0f0',
-            overflowY: 'auto',
-            minHeight: 0,
-          }}
-        >
-          {/* 主要导航菜单 */}
-          <Menu
-            mode="inline"
-            selectedKeys={[activePane]}
-            onClick={e => setActivePane(e.key)}
-            style={{ borderRight: 0, paddingBottom: 16 }}
-          >
-            {siderMenuItems.map(item => (
-              <Menu.Item key={item.key} icon={item.icon}>
-                {item.label}
-              </Menu.Item>
-            ))}
-          </Menu>
+        <AppSider
+          activePane={activePane}
+          setActivePane={setActivePane}
+          siderMenuItems={siderMenuItems}
+          uploadFileType={uploadFileType}
+          setUploadFileType={setUploadFileType}
+          handleUpload={handleUpload}
+          files={files}
+          loadingFiles={loadingFiles}
+          relatedFilesMeta={relatedFilesMeta}
+          setRelatedFileIds={setRelatedFileIds}
+          setRelatedFilesMeta={setRelatedFilesMeta}
+          setChatInput={setChatInput}
+          handlePreview={handlePreview}
+          chatHistory={chatHistory}
+          loadingChatHistory={loadingChatHistory}
+          selectedChatId={selectedChatId}
+          setSelectedChatId={setSelectedChatId}
+          notification={notification}
+        />
 
-          <Divider style={{ margin: '0 0 16px 0' }} />
-
-          {/* 文件上传区 */}
-          <div style={{ padding: '0 16px 16px' }}>
-            <Title level={5} style={{ marginTop: 0, marginBottom: 12, textAlign: 'center' }}>上传新文件</Title>
-            <Form layout="vertical">
-              <Form.Item label="文件类型">
-                <Select
-                  value={uploadFileType}
-                  onChange={setUploadFileType}
-                  style={{ width: '100%' }}
-                >
-                  <Option value="textbook">课本</Option>
-                  <Option value="past_paper">往年卷</Option>
-                  <Option value="answer_key">答案</Option>
-                  <Option value="other">其他</Option>
-                </Select>
-              </Form.Item>
-              <Form.Item>
-                <Upload
-                  name="file"
-                  action={`${BACKEND_BASE_URL}/upload`}
-                  data={{ file_type_tag: uploadFileType }} // 传递文件类型标签
-                  onChange={handleUpload}
-                  showUploadList={false}
-                  multiple={false}
-                >
-                  <Button icon={<UploadOutlined />} block>选择并上传文件</Button>
-                </Upload>
-              </Form.Item>
-            </Form>
-            <Text type="secondary" style={{ fontSize: '12px', marginTop: 0, display: 'block', textAlign: 'center' }}>支持PDF, DOCX, TXT等格式</Text>
-          </div>
-
-          <Divider style={{ margin: '0 0 16px 0' }} />
-
-          {/* 左侧侧边栏底部根据 activePane 渲染内容 */}
-          <div style={{ padding: '0 16px 16px' }}>
-            {activePane === 'files' && (
-              <Spin spinning={loadingFiles}>
-                <Title level={5} style={{ marginTop: 0, marginBottom: 12 }}>我的文件</Title>
-                <List
-                  dataSource={files}
-                  renderItem={file => (
-                    <List.Item
-                      key={file.id}
-                      actions={[
-                        <Tooltip title="添加到当前对话">
-                          <Button
-                            type="text"
-                            icon={<PlusOutlined />}
-                            size="small"
-                            onClick={() => {
-                              if (!relatedFilesMeta.some(f => f.id === file.id)) {
-                                setRelatedFileIds(prev => [...prev, file.id]);
-                                setRelatedFilesMeta(prev => [...prev, file]);
-                                notification.success({ message: `文件 '${file.name}' 已添加到当前对话。` });
-                              } else {
-                                notification.info({ message: `文件 '${file.name}' 已在此对话中。` });
-                              }
-                            }}
-                          />
-                        </Tooltip>,
-                        <Tooltip title="将文件内容发送到对话">
-                          <Button type="text" icon={<SendOutlined />} size="small" onClick={() => {
-                            setChatInput(prev => `${prev} 请分析文件：${file.name} `);
-                            setActivePane('chat');
-                          }} />
-                        </Tooltip>,
-                        <Tooltip title="查看文件">
-                          <Button type="text" icon={<SearchOutlined />} size="small" onClick={() => handlePreview(file)} />
-                        </Tooltip>
-                      ]}
-                      style={{ padding: '8px 0' }}
-                    >
-                      <List.Item.Meta
-                        avatar={<FileOutlined />}
-                        title={<a onClick={() => console.log('点击文件:', file.name)}>{file.name}</a>}
-                        description={<Text type="secondary">{file.size} - {file.uploadDate} (类型: {file.file_type_tag || '未知'})</Text>}
-                      />
-                    </List.Item>
-                  )}
-                />
-                {!files.length && !loadingFiles && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无文件" style={{ marginTop: 50 }} />}
-              </Spin>
-            )}
-            {activePane === 'chat' && (
-              <Spin spinning={loadingChatHistory}>
-                <Title level={5} style={{ marginTop: 0, marginBottom: 12 }}>对话历史</Title>
-                <List
-                  dataSource={chatHistory}
-                  renderItem={chat => (
-                    <List.Item
-                      key={chat.id}
-                      onClick={() => setSelectedChatId(chat.id)}
-                      style={{
-                        padding: '8px 12px',
-                        cursor: 'pointer',
-                        borderRadius: 4,
-                        background: selectedChatId === chat.id ? '#e6f7ff' : 'transparent',
-                        transition: 'background-color 0.2s',
-                        marginBottom: 4,
-                      }}
-                    >
-                      <List.Item.Meta
-                        avatar={<MessageOutlined />}
-                        title={<Text strong>{chat.title}</Text>}
-                        description={<Text type="secondary" style={{ fontSize: 12 }}>上次活跃: {chat.lastActive}</Text>}
-                      />
-                    </List.Item>
-                  )}
-                />
-                 {!chatHistory.length && !loadingChatHistory && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无对话历史" style={{ marginTop: 50 }} />}
-              </Spin>
-            )}
-            {/* 'settings' 模式下，左侧这里不再显示内容，因为右侧栏会显示其详细内容 */}
-            {activePane === 'settings' && (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="在右侧管理应用设置" style={{ marginTop: 50 }} />
-            )}
-            {/* templates 模式已经取消，所以这里不再显示 */}
-          </div>
-        </Sider>
-
-        {/* 中间主要内容区（大模型对话） */}
         <Content style={{ display: 'flex', flexGrow: 1 }}>
-          <div style={{
-            flex: 1,
-            background: '#f9f9f9',
-            borderRight: '1px solid #e0e0e0',
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%',
-          }}>
-            {/* 对话标题和关联文档显示 */}
-            <div style={{ padding: '16px 24px', borderBottom: '1px solid #e0e0e0', background: '#fff' }}>
-              <Title level={4} style={{ margin: 0 }}>
-                {currentChatTitle}
-                <Tooltip title="导出当前对话为DOCX文件">
-                  <Button
-                    icon={<DownloadOutlined />}
-                    type="text"
-                    style={{ marginLeft: 10 }}
-                    onClick={handleExportChat}
-                  />
-                </Tooltip>
-              </Title>
-              {relatedFilesMeta.length > 0 && (
-                  <div style={{ marginTop: 10, marginBottom: -8 }}>
-                      <Text strong>本次对话依据：</Text>
-                      <Space wrap size={[0, 8]}>
-                          {relatedFilesMeta.map(file => (
-                              <Tag
-                                  key={file.id}
-                                  closable
-                                  onClose={(e) => {
-                                      e.preventDefault();
-                                      setRelatedFileIds(prev => prev.filter(id => id !== file.id));
-                                      setRelatedFilesMeta(prev => prev.filter(f => f.id !== file.id));
-                                      notification.info({ message: `文件 '${file.name}' 已从当前对话移除。` });
-                                  }}
-                              >
-                                  {file.name}
-                              </Tag>
-                          ))}
-                      </Space>
-                  </div>
-              )}
-            </div>
-            {/* 消息显示区域 - 确保它内部滚动 */}
-            <div style={{ flex: 1, padding: '24px', overflowY: 'auto', minHeight: 0 }}>
-              <Spin spinning={loadingMessages}>
-                {messages.length === 0 && !loadingMessages ? (
-                  <Empty
-                    description="开始提问或上传文件"
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    style={{ marginTop: '50px' }}
-                  />
-                ) : (
-                  messages.map((msg, index) => (
-                    <div
-                      key={msg.id || index}
-                      style={{
-                        display: 'flex',
-                        justifyContent: msg.sender === 'user' ? 'flex-end' : 'flex-start',
-                        marginBottom: 16,
-                      }}
-                    >
-                      <Card
-                        size="small"
-                        style={{
-                          maxWidth: '70%',
-                          background: msg.sender === 'user' ? '#e6f7ff' : '#fff',
-                          borderColor: msg.sender === 'user' ? '#91d5ff' : '#d9d9d9',
-                          borderRadius: 8,
-                        }}
-                      >
-                        <Text strong>{msg.sender === 'user' ? '您' : 'AI助手'}</Text>
-                        <Paragraph style={{ marginBottom: 0, marginTop: 8, color: msg.isError ? 'red' : 'inherit' }}>
-                          {msg.content}
-                          {/* 仅为 AI 消息处理引用 */}
-                          {msg.sender === 'ai' && msg.citations_data && msg.citations_data.length > 0 && (
-                            <span style={{ marginLeft: 8 }}>
-                              {msg.citations_data.map((citation, idx) => {
-                                if (msg.content.includes(`[${citation.id}]`)) {
-                                  return (
-                                    <Tooltip key={idx} title={`查看文档：${citation.doc_name}，片段 ${citation.id}`}>
-                                      <a
-                                        onClick={() => showCitationDetail(citation)}
-                                        style={{ marginLeft: 4, fontWeight: 'bold', color: '#1890ff', cursor: 'pointer' }}
-                                      >
-                                        [{citation.id}]
-                                      </a>
-                                    </Tooltip>
-                                  );
-                                }
-                                return null;
-                              })}
-                            </span>
-                          )}
-                        </Paragraph>
-                        <Text type="secondary" style={{ fontSize: 10, textAlign: msg.sender === 'user' ? 'right' : 'left', display: 'block', marginTop: 4 }}>
-                          {msg.timestamp}
-                        </Text>
-                      </Card>
-                    </div>
-                  ))
-                )}
-                <div ref={messagesEndRef} /> {/* 滚动锚点 */}
-              </Spin>
-            </div>
+          <ChatMainContent
+            currentChatTitle={currentChatTitle}
+            handleExportChat={handleExportChat}
+            relatedFilesMeta={relatedFilesMeta}
+            setRelatedFileIds={setRelatedFileIds}
+            setRelatedFilesMeta={setRelatedFilesMeta}
+            notification={notification}
+            loadingMessages={loadingMessages}
+            messages={messages}
+            showCitationDetail={showCitationDetail}
+            chatInput={chatInput}
+            setChatInput={setChatInput}
+            handleSendMessage={handleSendMessage}
+            sendingMessage={sendingMessage}
+          />
 
-            {/* 输入区 */}
-            <div style={{ padding: '16px 24px', borderTop: '1px solid #e0e0e0', background: '#fff' }}>
-              <TextArea
-                value={chatInput}
-                onChange={(e) => setChatInput(e.target.value)}
-                placeholder="输入您的问题..."
-                autoSize={{ minRows: 2, maxRows: 6 }}
-                onPressEnter={(e) => {
-                  if (e.shiftKey) {
-                    // 不做任何操作，让默认行为处理换行
-                  } else {
-                    e.preventDefault(); // 阻止默认的Enter换行
-                    handleSendMessage();
-                  }
-                }}
-                style={{ marginBottom: 10 }}
-                disabled={sendingMessage}
-              />
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                onClick={handleSendMessage}
-                disabled={chatInput.trim() === '' || sendingMessage}
-                loading={sendingMessage}
-              >
-                发送
-              </Button>
-            </div>
-          </div>
-
-          {/* 右侧功能/工具区 - 根据 activePane 渲染不同内容，并始终显示答题方法按钮 */}
-          <div style={{
-            flex: '0 0 350px',
-            background: '#fff',
-            padding: '24px',
-            overflowY: 'auto',
-            borderLeft: '1px solid #e0e0e0',
-            minHeight: 0,
-          }}>
-            {/* 始终显示的通用工具按钮 */}
-            <Title level={4} style={{ marginTop: 0, marginBottom: 20 }}>通用工具</Title>
-            <Space direction="vertical" style={{ width: '100%' }}>
-              <Button
-                block
-                icon={<RobotOutlined />}
-                onClick={() => setIsTemplatesModalVisible(true)} // 点击打开答题方法Modal
-              >
-                答题方法与模板
-              </Button>
-              {/* 这里可以添加其他通用工具按钮 */}
-            </Space>
-            <Divider />
-
-            {/* 对话模式下的设置 */}
-            {activePane === 'chat' && (
-              <>
-                <Title level={4} style={{ marginTop: 0, marginBottom: 20 }}>对话设置</Title>
-                <Form layout="vertical">
-                  <Form.Item label="选择模型">
-                    <Select
-                      value={modelSettings.model}
-                      onChange={(value) => setModelSettings({ ...modelSettings, model: value })}
-                    >
-                      <Option value="deepseek-chat">DeepSeek Chat</Option>
-                      <Option value="deepseek-coder">DeepSeek Coder</Option>
-                    </Select>
-                  </Form.Item>
-
-                  <Form.Item label="温度 (Temperature)" tooltip="控制生成文本的随机性，值越高越有创意，越低越保守。">
-                    <Slider
-                      min={0}
-                      max={1}
-                      step={0.1}
-                      value={modelSettings.temperature}
-                      onChange={(value) => setModelSettings({ ...modelSettings, temperature: value })}
-                    />
-                    <Text type="secondary">{modelSettings.temperature.toFixed(1)}</Text>
-                  </Form.Item>
-
-                  <Form.Item label="模型人格">
-                    <Select
-                      value={modelSettings.persona}
-                      onChange={(value) => setModelSettings({ ...modelSettings, persona: value })}
-                    >
-                      <Option value="default">默认</Option>
-                      <Option value="professional">专业</Option>
-                      <Option value="creative">创意</Option>
-                      <Option value="friendly">友好</Option>
-                    </Select>
-                  </Form.Item>
-
-                  <Form.Item label="启用流式输出" valuePropName="checked">
-                    <Switch
-                      checked={modelSettings.enableStreaming}
-                      onChange={(checked) => setModelSettings({ ...modelSettings, enableStreaming: checked })}
-                    />
-                  </Form.Item>
-                </Form>
-              </>
-            )}
-
-            {/* 文件模式和设置模式下的通用提示 */}
-            {(activePane === 'files' || activePane === 'settings') && (
-              <>
-                {/* 这里的Title可以根据activePane动态改变，或者保持通用 */}
-                <Title level={4} style={{ marginTop: 0, marginBottom: 20 }}>辅助信息</Title>
-                <Empty description="请在左侧选择对应功能菜单" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-              </>
-            )}
-            {/* 移除了旧的常用提示词和文件操作区域 */}
-          </div>
+          <RightPanel
+            activePane={activePane}
+            setIsTemplatesModalVisible={setIsTemplatesModalVisible}
+            modelSettings={modelSettings}
+            setModelSettings={setModelSettings}
+          />
         </Content>
       </Layout>
 
-      {/* 文件预览 Modal */}
-      <Modal
-        title={currentPreviewFile ? `预览: ${currentPreviewFile.name}` : '文件预览'}
-        visible={isPreviewModalVisible}
-        onCancel={handlePreviewModalClose}
-        footer={[
-          currentPreviewFile && previewFileContent === 'UNSUPPORTED_PREVIEW' && (
-            <Button
-              key="download"
-              type="primary"
-              href={`${BACKEND_BASE_URL.replace('/api', '')}/uploads/${currentPreviewFile.name}`}
-              target="_blank"
-              download={currentPreviewFile.name}
-            >
-              下载文件
-            </Button>
-          ),
-          <Button key="close" onClick={handlePreviewModalClose}>关闭</Button>,
-        ]}
-        width={800}
-        bodyStyle={{ minHeight: '400px', maxHeight: '70vh', overflowY: 'auto' }}
-      >
-        <Spin spinning={loadingPreviewContent}>
-          {!currentPreviewFile ? (
-            <Empty description="选择一个文件进行预览" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          ) : (
-            <div>
-              {loadingPreviewContent ? (
-                <Empty description="加载中..." image={Empty.PRESENTED_IMAGE_SIMPLE} />
-              ) : previewFileContent === 'UNSUPPORTED_PREVIEW' ? (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_FILE}
-                  description={
-                    <Text>
-                      该文件类型（<Text strong>.{currentPreviewFile.type || '未知'}</Text>）暂不支持在线预览。
-                      <br />
-                      您可以点击下方的"下载文件"按钮。
-                    </Text>
-                  }
-                />
-              ) : previewFileContent === 'ERROR_LOADING_PREVIEW' ? (
-                <Empty
-                  image={Empty.PRESENTED_IMAGE_DEFAULT}
-                  description={
-                    <Text type="danger">
-                      加载文件内容失败。请检查后端服务和文件是否存在于服务器。
-                    </Text>
-                  }
-                />
-              ) : currentPreviewFile.type.startsWith('image') ? (
-                <img src={previewFileContent} alt="文件预览" style={{ maxWidth: '100%', display: 'block', margin: '0 auto' }} />
-              ) : currentPreviewFile.type === 'pdf' ? (
-                <iframe
-                  src={previewFileContent}
-                  title="PDF 文件预览"
-                  width="100%"
-                  height="500px"
-                  frameBorder="0"
-                  style={{ border: '1px solid #e0e0e0', minHeight: '400px' }}
-                />
-              ) : (
-                <Input.TextArea
-                  value={previewFileContent}
-                  readOnly
-                  autoSize={{ minRows: 15, maxRows: 30 }}
-                  style={{ width: '100%', border: 'none', background: '#f8f8f8' }}
-                />
-              )}
-            </div>
-          )}
-        </Spin>
-      </Modal>
+      <FilePreviewModal
+        isPreviewModalVisible={isPreviewModalVisible}
+        handlePreviewModalClose={handlePreviewModalClose}
+        currentPreviewFile={currentPreviewFile}
+        previewFileContent={previewFileContent}
+        loadingPreviewContent={loadingPreviewContent}
+      />
 
-      {/* 引用详情 Modal */}
-      <Modal
-          title={currentCitationTitle}
-          visible={isCitationModalVisible}
-          onCancel={() => setIsCitationModalVisible(false)}
-          footer={[
-              <Button key="close" onClick={() => setIsCitationModalVisible(false)}>关闭</Button>,
-          ]}
-          width={700}
-          bodyStyle={{ maxHeight: '70vh', overflowY: 'auto' }}
-      >
-          <Input.TextArea
-              value={currentCitationContent}
-              readOnly
-              autoSize={{ minRows: 10, maxRows: 25 }}
-              style={{ width: '100%', border: 'none', background: '#f8f8f8' }}
-          />
-      </Modal>
+      <CitationDetailModal
+        isCitationModalVisible={isCitationModalVisible}
+        setIsCitationModalVisible={setIsCitationModalVisible}
+        currentCitationContent={currentCitationContent}
+        currentCitationTitle={currentCitationTitle}
+      />
 
-      {/* 答题方法与模板 Modal (新增) */}
-      <Modal
-        title="答题方法与出题模板"
-        visible={isTemplatesModalVisible}
-        onCancel={() => setIsTemplatesModalVisible(false)}
-        footer={null} // 不显示默认Footer，所有按钮都在Form内部
-        width={800} // 根据内容调整宽度
-        bodyStyle={{ maxHeight: '80vh', overflowY: 'auto' }} // 可滚动
-      >
-        <Spin spinning={loadingTemplatesMethods || extractionLoading || rewriteLoading}>
-          <Divider orientation="left" style={{ margin: '16px 0' }}>从文件提取</Divider>
-          <Form layout="vertical">
-            <Form.Item label="选择文件">
-              <Select
-                placeholder="选择要分析的文件"
-                value={selectedFileForExtraction}
-                onChange={setSelectedFileForExtraction}
-                style={{ width: '100%' }}
-              >
-                {files.map(file => (
-                  <Option key={file.id} value={file.id}>
-                    {file.name} (类型: {file.file_type_tag || '未知'})
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item>
-              <Button
-                type="primary"
-                onClick={handleExtractTemplatesFromFile}
-                loading={extractionLoading}
-                block
-                disabled={!selectedFileForExtraction}
-              >
-                从文件中提取出题模板与答题方法
-              </Button>
-            </Form.Item>
-          </Form>
-
-          <Divider orientation="left" style={{ margin: '16px 0' }}>已保存的模板与方法</Divider>
-          <List
-            dataSource={templatesMethods}
-            renderItem={(item, index) => (
-              <List.Item
-                actions={[
-                  <Tooltip title="复制答题方法">
-                    <Button
-                      type="text"
-                      icon={copiedIndex === index ? <CheckOutlined style={{ color: 'green' }} /> : <CopyOutlined />}
-                      size="small"
-                      onClick={() => handleCopy(item.answer_method, index)}
-                    />
-                  </Tooltip>
-                ]}
-              >
-                <List.Item.Meta
-                  title={<Text strong>出题模板: {item.question_template}</Text>}
-                  description={<Text type="secondary">答题方法: {item.answer_method}</Text>}
-                />
-              </List.Item>
-            )}
-          />
-          {!templatesMethods.length && !loadingTemplatesMethods && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无保存的模板和方法" style={{ marginTop: 50 }} />}
-
-          <Divider orientation="left" style={{ margin: '16px 0' }}>根据方法重写答案</Divider>
-          <Form layout="vertical">
-            <Form.Item label="选择答题方法">
-              <Select
-                placeholder="选择一个已提取的答题方法"
-                value={selectedMethodIndex}
-                onChange={setSelectedMethodIndex}
-                style={{ width: '100%' }}
-              >
-                {templatesMethods.map((item, index) => (
-                  <Option key={index} value={index}>
-                    模板: {item.question_template} | 方法: {item.answer_method}
-                  </Option>
-                ))}
-              </Select>
-            </Form.Item>
-            <Form.Item label="原始题目">
-              <Input.TextArea
-                value={rewriteQuestion}
-                onChange={(e) => setRewriteQuestion(e.target.value)}
-                placeholder="请输入原始题目"
-                autoSize={{ minRows: 1, maxRows: 3 }}
-              />
-            </Form.Item>
-            <Form.Item label="原始答案">
-              <Input.TextArea
-                value={originalAnswer}
-                onChange={(e) => setOriginalAnswer(e.target.value)}
-                placeholder="请输入原始答案"
-                autoSize={{ minRows: 3, maxRows: 6 }}
-              />
-            </Form.Item>
-            <Form.Item>
-              <Button
-                type="primary"
-                onClick={handleRewriteAnswer}
-                loading={rewriteLoading}
-                block
-                disabled={!rewriteQuestion.trim() || !originalAnswer.trim() || selectedMethodIndex === null}
-              >
-                重写答案
-              </Button>
-            </Form.Item>
-            {rewrittenAnswer && (
-              <Form.Item label="重写后的答案">
-                <Input.TextArea
-                  value={rewrittenAnswer}
-                  readOnly
-                  autoSize={{ minRows: 3, maxRows: 8 }}
-                  style={{ background: '#f0f2f5' }}
-                />
-              </Form.Item>
-            )}
-          </Form>
-        </Spin>
-      </Modal>
+      <TemplatesMethodsModal
+        isTemplatesModalVisible={isTemplatesModalVisible}
+        setIsTemplatesModalVisible={setIsTemplatesModalVisible}
+        loadingTemplatesMethods={loadingTemplatesMethods}
+        templatesMethods={templatesMethods}
+        files={files}
+        selectedFileForExtraction={selectedFileForExtraction}
+        setSelectedFileForExtraction={setSelectedFileForExtraction}
+        handleExtractTemplatesFromFile={handleExtractTemplatesFromFile}
+        extractionLoading={extractionLoading}
+        rewriteQuestion={rewriteQuestion}
+        setRewriteQuestion={setRewriteQuestion}
+        originalAnswer={originalAnswer}
+        setOriginalAnswer={setOriginalAnswer}
+        selectedMethodIndex={selectedMethodIndex}
+        setSelectedMethodIndex={setSelectedMethodIndex}
+        handleRewriteAnswer={handleRewriteAnswer}
+        rewriteLoading={rewriteLoading}
+        rewrittenAnswer={rewrittenAnswer}
+        copiedIndex={copiedIndex}
+        setCopiedIndex={setCopiedIndex}
+      />
     </Layout>
   );
 }
