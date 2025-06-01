@@ -136,6 +136,7 @@ Studying Helper 是一个旨在辅助用户学习和理解教材内容的工具�
     "use_gpu":true 
     // 布尔值 (true/false)，指定部分脚本（如 embedding.py, search_similar.py）是否尝试使用GPU。如果为true但无可用GPU，通常会自动回退到CPU。
 }
+```
 
 ## 脚本文件说明
 项目包含多个Python脚本，各司其职，共同完成教材处理和分析的流水线。所有脚本都从项目根目录下的`config.json`文件读取配置。
@@ -150,6 +151,53 @@ Studying Helper 是一个旨在辅助用户学习和理解教材内容的工具�
 
 OCR默认使用中文模型（lang='ch'）和CPU。
 
+调用:
+```
+from pathlib import Path
+import shutil # Optional: for managing PDF files if needed
+
+from images_and_ocr import main as process_textbook_ocr
+
+def run_ocr_for_book(book_name_without_extension: str, source_pdf_location: Path):
+
+    expected_pdf_parent_dir = Path("uploads") / book_name_without_extension
+    expected_pdf_path = expected_pdf_parent_dir / f"{book_name_without_extension}.pdf"
+
+    # Ensure the target directory exists
+    expected_pdf_parent_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy the source PDF to the location expected by images_and_ocr.py
+    if source_pdf_location.exists():
+        shutil.copy(source_pdf_location, expected_pdf_path)
+        print(f"Copied '{source_pdf_location}' to '{expected_pdf_path}'.")
+    else:
+        print(f"Error: Source PDF '{source_pdf_location}' not found.")
+        return
+
+    # Call the main function from images_and_ocr.py
+    print(f"Starting OCR processing for: {book_name_without_extension}")
+    try:
+        process_textbook_ocr(book_name_without_extension)
+        print(f"Successfully processed: {book_name_without_extension}")
+        # Processed files will be in:
+        # uploads/<book_name_without_extension>/textbook_information/
+    except Exception as e:
+        print(f"An error occurred while processing {book_name_without_extension}: {e}")
+
+if __name__ == "__main__":
+    # --- Example Usage ---
+    my_book_id = "my_science_textbook"
+    # IMPORTANT: Replace this with the actual path to your PDF file
+    path_to_my_original_pdf = Path("/path/to/my/source/pdfs/my_science_textbook.pdf")
+
+    if not path_to_my_original_pdf.is_file():
+        print(f"ERROR: The example PDF path is invalid: {path_to_my_original_pdf}")
+        print("Please update 'path_to_my_original_pdf' in the script.")
+    else:
+        run_ocr_for_book(book_name_without_extension=my_book_id,
+                         source_pdf_location=path_to_my_original_pdf)
+```
+
 ### `get_catalog.py`:
 
 功能: 智能生成教材的目录结构。
@@ -163,6 +211,27 @@ LLM根据预设的提示（Prompt）分析文本，提取章节标题和在文�
 脚本进一步处理LLM返回的JSON，计算页面偏移量（基于第一个叶子节点的原始页码和实际起始文件页码），并将校正后的实际起始和结束文件名（如 page0005.txt）添加到目录结构中每个节点的 actual_starting_page 和 actual_ending_page 字段。
 
 最终的目录结构保存到 config.json 中 catalog 指定的JSON文件。
+
+调用:
+```
+from pathlib import Path
+from get_catalog import main as extract_textbook_catalog
+
+def process_single_textbook_catalog(book_name_no_extension: str):
+    try:
+        # The get_catalog.py script expects DASHSCOPE_API_KEY to be set as an environment variable.
+        # Ensure it's set in the environment where this orchestrator.py runs.
+        extract_textbook_catalog(book_name_no_extension)
+        print(f"Catalog extraction process initiated or completed for: {book_name_no_extension}")
+        # The output catalog.json will be in:
+        # ./uploads/<book_name_no_extension>/textbook_information/catalog.json
+    except Exception as e:
+        print(f"An error occurred while calling catalog extraction for {book_name_no_extension}: {e}")
+
+if __name__ == "__main__":
+    textbook_to_process = "example_book_01"
+    process_single_textbook_catalog(textbook_to_process)
+```
 
 ### `get_segment.py`:
 
@@ -182,6 +251,48 @@ LLM根据预设的提示对文本进行预处理、清理，并进行语义切�
 
 最终包含知识点的完整目录结构保存到 config.json 中 catalog_segments 指定的JSON文件。
 
+调用:
+```
+from pathlib import Path
+from get_segment import main as segment_textbook_catalog
+
+def run_knowledge_point_extraction(book_name_no_extension: str):
+    try:
+        # The get_segment.py script expects DASHSCOPE_API_KEY to be set as an environment variable.
+        # Ensure it's set in the environment where this workflow_controller.py runs.
+        segment_textbook_catalog(book_name_no_extension)
+        print(f"Knowledge point extraction process initiated or completed for: {book_name_no_extension}")
+        # The output catalog_with_segments.json will be in:
+        # ./uploads/<book_name>/textbook_information/catalog_with_segments.json
+    except Exception as e:
+        print(f"An error occurred while calling knowledge point extraction for {book_name_no_extension}: {e}")
+
+if __name__ == "__main__":
+    textbook_id = "advanced_math"
+    run_knowledge_point_extraction(textbook_id)
+```
+
+### `get_orgchart.py`
+调用:
+```
+from pathlib import Path
+from get_orgchart import run_orgchart_generation
+
+def execute_orgchart_step(book_name_no_extension: str):
+    try:
+        script_dir_for_get_orgchart = Path(__file__).resolve().parent
+
+        # The get_orgchart.py script expects DASHSCOPE_API_KEY to be set as an environment variable.
+        run_orgchart_generation(book_name_no_extension, script_dir_for_get_orgchart)
+        print(f"Org chart generation process called for: {book_name_no_extension}")
+    except Exception as e:
+        print(f"An error occurred while calling org chart generation for {book_name_no_extension}: {e}")
+
+if __name__ == "__main__":
+    textbook_id_to_process = "example_book_final"
+    execute_orgchart_step(textbook_id_to_process)
+```
+
 ### `embedding.py`:
 
 功能: 为知识点生成向量嵌入并构建检索索引。
@@ -198,6 +309,27 @@ LLM根据预设的提示对文本进行预处理、清理，并进行语义切�
 
 同时，创建一个映射文件（文件名由 faiss_index_filename 和 mapping_file_suffix 组成），该文件是一个JSON列表，按顺序存储了所有被索引的知识点原文。FAISS返回的索引ID即对应此列表的下标。
 
+调用:
+```
+# master_pipeline.py
+from pathlib import Path
+# Assuming embedding.py is in the same directory or accessible
+from embedding import run_embedding_generation
+
+def execute_embedding_step(book_name_no_extension: str):
+    try:
+        script_dir_for_embedding_py = Path(__file__).resolve().parent
+
+        run_embedding_generation(book_name_no_extension, script_dir_for_embedding_py)
+        print(f"Embedding generation process called for: {book_name_no_extension}")
+    except Exception as e:
+        print(f"An error occurred while calling embedding generation for {book_name_no_extension}: {e}")
+
+if __name__ == "__main__":
+
+    textbook_id_to_embed = "final_project_book"
+    execute_embedding_step(textbook_id_to_embed)
+
 ### `search_similar.py`:
 
 功能: 根据用户提问检索相似知识点。
@@ -212,45 +344,42 @@ LLM根据预设的提示对文本进行预处理、清理，并进行语义切�
 
 输出检索到的知识点原文及其与查询的距离（L2距离，越小越相似）。
 
-### `get_mermaid.py`:
+调用:
+```
+from pathlib import Path
+from search_similar import search_textbook_knowledge
 
-功能: 为教材的每个最小单元章节生成Mermaid思维导图代码。
+def find_answers_for_textbook(user_question: str, book_name: str, k: int = 3):
+    try:
+        # Determine the script directory of search_similar.py.
+        # If query_handler.py is in the same directory as search_similar.py:
+        script_dir_for_search_py = Path(__file__).resolve().parent
 
-读取 `get_catalog.py` 生成的目录文件 (config.json 中的 catalog)。
+        results = search_textbook_knowledge(
+            question=user_question,
+            textbook_name=book_name,
+            script_dir=script_dir_for_search_py,
+            top_k_override=k
+        )
 
-遍历目录中的每个“叶子节点”。
+        if results:
+            print(f"\n--- Found {len(results)} relevant snippets for '{user_question}' in '{book_name}' ---")
+            for i, result in enumerate(results):
+                print(f"\n{i+1}. Snippet (ID: {result['id']}): {result['text']}")
+                print(f"   Relevance (Distance): {result['distance']:.4f}")
+            return results
+        else:
+            print(f"No relevant snippets found for '{user_question}' in '{book_name}'.")
+            return []
+    except Exception as e:
+        print(f"An error occurred while searching in '{book_name}' for '{user_question}': {e}")
+        return []
 
-读取该叶子章节对应的OCR文本内容。
+if __name__ == "__main__":
+    query = "What is Newton's second law?"
+    textbook = "my_physics_book" # Base name of the textbook
 
-将章节标题和文本内容发送给DashScope的大语言模型。
+    found_knowledge = find_answers_for_textbook(user_question=query, book_name=textbook, k=5)
 
-LLM根据预设的提示（包含Mermaid代码生成规则，如使用 \\n 代表换行，\\t 代表缩进）生成该章节内容的Mermaid思维导图代码。
-
-LLM返回的结果是一个JSON对象，其中包含 mermaid_code 字段（值为包含转义字符的Mermaid代码字符串）以及章节元数据。
-
-每个叶子章节生成的JSON对象分别保存到 config.json 中 mermaid_dir 指定的目录，文件名基于章节ID（如 1_1.json, 1_2_1.json）。
-
-### `parse_mermaid.py`:
-
-功能: 解析并转换Mermaid代码。
-
-读取 get_mermaid.py 输出目录 (mermaid_dir) 中的所有JSON文件。
-
-对于每个JSON文件，提取 mermaid_code 字段中的字符串。
-
-将字符串中的转义字符 \\n 替换为实际的换行符，将 \\t 替换为实际的制表符。
-
-处理后的、可以直接渲染的Mermaid代码保存为 .mmd 文件到 config.json 中 parsed_mermaid_dir 指定的目录，文件名与输入的JSON文件（不含后缀）相同。
-
-### `merge_mermaid.py`:
-
-功能: 合并所有单个章节的Mermaid代码，生成全书的思维导图。
-
-读取 get_catalog.py 生成的目录文件 (catalog) 和 parse_mermaid.py 输出目录 (parsed_mermaid_dir) 中的所有 .mmd 文件。
-
-基于目录的层级结构，递归地将每个章节（特别是叶子节点对应章节）的 .mmd 文件内容整合起来。
-
-在整合时，会根据目录层级自动添加正确的缩进。
-
-最终生成一个单一的 .mmd 文件，包含一个以 config.json 中 book_root_title 为根节点的、代表整本书内容的巨大Mermaid思维导图。该文件保存到 config.json 中 combined_mermaid 指定的文件名。
+```
 

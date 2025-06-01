@@ -7,7 +7,23 @@ import sys
 
 import dashscope # 假设已安装: pip install dashscope
 
-# --- LLM 提示 ---
+# --- Constants defined as per requirements ---
+BERT_MODEL = "bert-base-chinese"
+CATALOG_FILENAME = "catalog.json"
+CATALOG_SEGMENTS_FILENAME = "catalog_with_segments.json"
+EMBEDDING_BATCH_SIZE = 32
+FAISS_INDEX_FILENAME = "knowledge_points.index"
+IMAGES_SUBDIR_NAME = "textbook_images_dir"
+LLM_MODEL = "qwen-max" # As per user's list (hyphenated)
+MAPPING_FILE_SUFFIX = ".mapping.json"
+ORGCHART_SUBDIR_NAME = "orgchart_dir"
+TEXTBOOK_ORGCHART_FILENAME = "textbook_orgchart.json"
+PAGES_FOR_CATALOG = 30
+SEARCH_TOP_K = 3
+TEXT_SUBDIR_NAME = "textbook_text_dir"
+# --- End of defined constants ---
+
+# --- LLM 提示 (Specific to this script's functionality) ---
 PROMPT_TEXT_OFFSET_STRATEGY = """
 你是一个专业的助手，擅长分析文本文档并提取结构化信息。
 你将收到来自一本书前N页（很可能是目录或索引，N会由配置指定）的 **文本内容**。
@@ -65,7 +81,7 @@ def call_llm_dashscope_text(api_key: Optional[str], user_content: str, system_pr
         print("错误：DASHSCOPE_API_KEY 未提供或为空。", file=sys.stderr)
         return "ERROR:API_KEY_MISSING"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content}]
-    print(f"\n--- 正在调用文本模型: {model_name} ---")
+    print(f"\n--- 正在调用文本模型: {model_name} ---") # Uses the model_name passed (e.g., "qwen-max")
     try:
         response = dashscope.Generation.call(api_key=api_key, model=model_name, messages=messages, result_format='message', stream=False)
         if response.status_code == 200 and response.output and response.output.choices:
@@ -91,7 +107,7 @@ def parse_json_from_llm(llm_output: str) -> Optional[Dict]:
     cleaned_string = re.sub(r"```json\s*", "", llm_output, flags=re.IGNORECASE).strip()
     cleaned_string = re.sub(r"```\s*$", "", cleaned_string).strip()
     cleaned_string = re.sub(r'^json\s*', '', cleaned_string, flags=re.IGNORECASE).strip()
-    
+
     first_brace = cleaned_string.find('{')
     last_brace = cleaned_string.rfind('}')
 
@@ -132,17 +148,11 @@ def format_filename(number: int) -> str:
     """将数字格式化为 pageXXXX.txt。"""
     return f"page{number:04d}.txt"
 
-def _apply_offset_recursive(nodes: List[Dict], offset: int, parent_path_id_for_recursion: str = ""): # Renamed to avoid confusion
+def _apply_offset_recursive(nodes: List[Dict], offset: int):
     """
     辅助函数：递归地将偏移量应用于起始/结束页码。
-    注意：parent_path_id_for_recursion 仅用于递归调用，不会存储在节点上。
     """
-    for i, node in enumerate(nodes):
-        # current_index_val = node.get("index")
-        # current_index_str = str(current_index_val) if current_index_val is not None else str(i + 1)
-        # path_id 不再生成或存储
-        # node["path_id"] = f"{parent_path_id_for_recursion}{'.' if parent_path_id_for_recursion else ''}{current_index_str}"
-
+    for node in nodes:
         try:
             if "starting_page" in node and isinstance(node["starting_page"], (int, float)):
                 node["actual_starting_page"] = format_filename(int(node["starting_page"]) + offset)
@@ -165,15 +175,12 @@ def _apply_offset_recursive(nodes: List[Dict], offset: int, parent_path_id_for_r
             node["actual_ending_page"] = "OFFSET_ERROR"
 
         if "children" in node and isinstance(node["children"], list) and node["children"]:
-            # current_node_path_id_for_next_level = node.get("path_id", "") # path_id 不再使用
-            # 在这里，我们只是为了保持递归结构，不需要传递父ID给下一层，因为ID本身就不再生成。
-            _apply_offset_recursive(node["children"], offset, "") # 传递空字符串作为parent_path_id_for_recursion
+            _apply_offset_recursive(node["children"], offset)
 
 
 def apply_offset_and_save(data: Dict, output_file: Path):
     """
     从第一个叶节点计算偏移量，将其应用于所有节点，然后保存结果。
-    (移除了 path_id 的生成)
     """
     print("--- 步骤 2 & 3: 计算并应用页面偏移量 ---")
     if not data or "chapters" not in data or not isinstance(data["chapters"], list):
@@ -186,20 +193,18 @@ def apply_offset_and_save(data: Dict, output_file: Path):
     if not first_leaf:
         print("错误：未能在LLM输出中找到第一个叶节点。", file=sys.stderr)
         print("信息：将尝试不应用偏移量并保存当前结构。")
-        # 由于没有偏移量，直接保存（如果需要，可以在这里进行其他预处理）
-        # _apply_offset_recursive(data["chapters"], 0) # 如果仍希望运行此函数处理特殊页码情况
         save_json_data(data, output_file, "部分结果（未找到首叶，无偏移量应用）")
         return
 
     toc_start_page_val = first_leaf.get("starting_page")
-    actual_start_file_val = first_leaf.get("actual_starting_page") 
+    actual_start_file_val = first_leaf.get("actual_starting_page")
 
     if not isinstance(toc_start_page_val, int):
         print(f"错误：第一个叶节点 '{first_leaf.get('name', '未命名节点')}' 的 'starting_page' ({toc_start_page_val}) 不是有效的整数。", file=sys.stderr)
         print("信息：将尝试不应用偏移量并保存当前结构。")
         save_json_data(data, output_file, "部分结果（页码无效，无偏移量应用）")
         return
-    
+
     if not actual_start_file_val or not isinstance(actual_start_file_val, str):
         print(f"错误：第一个叶节点 '{first_leaf.get('name', '未命名节点')}' 缺少 'actual_starting_page' 字符串或其值无效 ({actual_start_file_val})。", file=sys.stderr)
         print("       LLM 应已在步骤1中为第一个叶节点提供了 'actual_starting_page'。", file=sys.stderr)
@@ -218,7 +223,14 @@ def apply_offset_and_save(data: Dict, output_file: Path):
     offset = actual_start_number - toc_start_page_val
     print(f"信息：计算出的页面偏移量为: {offset} (实际文件页码: {actual_start_number}, 目录声称页码: {toc_start_page_val})")
 
-    _apply_offset_recursive(data["chapters"], offset) # 初始调用时 parent_path_id_for_recursion 可以是空
+    # Remove the 'actual_starting_page' from the first leaf before applying offset to all nodes,
+    # as the prompt specifies it only for the *first* leaf in the *initial* LLM output.
+    # The recursive function will add 'actual_starting_page' and 'actual_ending_page' to all nodes.
+    if 'actual_starting_page' in first_leaf :
+        del first_leaf['actual_starting_page']
+
+
+    _apply_offset_recursive(data["chapters"], offset)
     print("信息：偏移量已应用于所有节点。")
     save_json_data(data, output_file, "最终目录结果 (含偏移量)")
 
@@ -247,28 +259,33 @@ def run_catalog_extraction(textbook_name: str, script_dir_path: Path):
     为指定的教材编排目录提取过程。
     """
     print(f"开始为教材 '{textbook_name}' 提取目录过程 (偏移量策略)...")
-    
+
     dashscope_api_key = os.getenv('DASHSCOPE_API_KEY')
     if not dashscope_api_key:
         print("致命错误: 环境变量 DASHSCOPE_API_KEY 未设置。", file=sys.stderr)
         return
 
-    # 硬编码的配置值
-    text_subdir_name = "text_dir"
-    catalog_output_filename = "catalog.json"
-    pages_for_catalog = 30
-    llm_model_name = "qwen_max"
+    # Path definitions based on requirements
+    # Example: /a/b/c/uploads/book1/
+    textbook_base_dir = script_dir_path / "uploads" / textbook_name
+    # Example: /a/b/c/uploads/book1/textbook_information/
+    info_storage_dir = textbook_base_dir / "textbook_information"
 
-    base_textbook_processing_dir = script_dir_path / "uploads" / f"{textbook_name}_dir"
-    text_dir_full_path = base_textbook_processing_dir / text_subdir_name
-    result_json_full_path = base_textbook_processing_dir / catalog_output_filename
+    # Input text directory using global constant TEXT_SUBDIR_NAME
+    # Example: /a/b/c/uploads/book1/textbook_information/textbook_text_dir/
+    text_dir_full_path = info_storage_dir / TEXT_SUBDIR_NAME
+    # Output catalog file using global constant CATALOG_FILENAME
+    # Example: /a/b/c/uploads/book1/textbook_information/catalog.json
+    result_json_full_path = info_storage_dir / CATALOG_FILENAME
 
     print(f"脚本目录: {script_dir_path}")
-    print(f"教材处理根目录: {base_textbook_processing_dir}")
-    print(f"文本目录 (用于LLM输入): {text_dir_full_path}")
-    print(f"结果文件 (目录输出): {result_json_full_path}")
-    print(f"用于目录的页数: {pages_for_catalog}")
-    print(f"LLM 模型: {llm_model_name}")
+    print(f"教材根目录 (uploads/{textbook_name}): {textbook_base_dir}")
+    print(f"信息存储目录 (textbook_information): {info_storage_dir}")
+    print(f"文本输入目录 (来自全局常量 TEXT_SUBDIR_NAME): {text_dir_full_path}")
+    print(f"目录输出文件 (来自全局常量 CATALOG_FILENAME): {result_json_full_path}")
+    print(f"用于目录的页数 (来自全局常量 PAGES_FOR_CATALOG): {PAGES_FOR_CATALOG}")
+    print(f"LLM 模型 (来自全局常量 LLM_MODEL): {LLM_MODEL}")
+
 
     if not text_dir_full_path.is_dir():
         print(f"错误: 文本目录 '{text_dir_full_path}' 未找到。请确保OCR流程已为教材 '{textbook_name}' 正确生成文本文件。", file=sys.stderr)
@@ -279,15 +296,16 @@ def run_catalog_extraction(textbook_name: str, script_dir_path: Path):
         print(f"在目录 '{text_dir_full_path}' 中未找到符合格式 'pageXXXX.txt' 的文本文件。程序退出。")
         return
 
-    text_paths_to_send = all_text_paths[:pages_for_catalog]
-    if len(text_paths_to_send) < pages_for_catalog:
-        print(f"警告：找到的文本文件 ({len(text_paths_to_send)}) 少于配置的页数 ({pages_for_catalog})。", file=sys.stderr)
+    # Use global constant PAGES_FOR_CATALOG
+    text_paths_to_send = all_text_paths[:PAGES_FOR_CATALOG]
+    if len(text_paths_to_send) < PAGES_FOR_CATALOG:
+        print(f"警告：找到的文本文件 ({len(text_paths_to_send)}) 少于配置的页数 ({PAGES_FOR_CATALOG})。", file=sys.stderr)
     if not text_paths_to_send :
-        print(f"警告：没有文本文件可供发送给 LLM (需要最多 {pages_for_catalog} 页，实际找到 {len(all_text_paths)} 页可用的文本文件)。程序退出。", file=sys.stderr)
+        print(f"警告：没有文本文件可供发送给 LLM (需要最多 {PAGES_FOR_CATALOG} 页，实际找到 {len(all_text_paths)} 页可用的文本文件)。程序退出。", file=sys.stderr)
         return
-        
-    print(f"将使用 {len(text_paths_to_send)} 个文本文件（最多 {pages_for_catalog} 页）发送给 LLM。")
-    
+
+    print(f"将使用 {len(text_paths_to_send)} 个文本文件（最多 {PAGES_FOR_CATALOG} 页）发送给 LLM。")
+
     combined_content_parts = []
     for p in text_paths_to_send:
         content = read_text_file(p)
@@ -300,16 +318,17 @@ def run_catalog_extraction(textbook_name: str, script_dir_path: Path):
     if not combined_content_parts:
         print("错误：未能读取任何文本文件内容以发送给 LLM。程序退出。", file=sys.stderr)
         return
-            
+
     full_text_content = "\n\n".join(combined_content_parts)
 
     print("\n--- 步骤 1: 获取结构和首叶起始页 ---")
-    llm_output = call_llm_dashscope_text(dashscope_api_key, full_text_content, PROMPT_TEXT_OFFSET_STRATEGY, llm_model_name)
+    # Use global constant LLM_MODEL
+    llm_output = call_llm_dashscope_text(dashscope_api_key, full_text_content, PROMPT_TEXT_OFFSET_STRATEGY, LLM_MODEL)
     initial_structure = parse_json_from_llm(llm_output)
-    
+
     if not initial_structure:
         print("步骤 1 失败：未能从 LLM 获取或解析有效的初始目录结构。程序退出。", file=sys.stderr)
-        error_output_path = result_json_full_path.with_suffix(".llm_error_output.txt")
+        error_output_path = result_json_full_path.with_name(f"{result_json_full_path.stem}_llm_error_output.txt")
         try:
             error_output_path.parent.mkdir(parents=True, exist_ok=True)
             with open(error_output_path, 'w', encoding='utf-8') as f_err:
@@ -330,9 +349,10 @@ def main(textbook_name_param: str):
     """
     try:
         current_script_dir = Path(__file__).parent.resolve()
-    except NameError: 
+    except NameError:
+        # Fallback for environments where __file__ might not be defined (e.g. interactive)
         current_script_dir = Path(os.getcwd()).resolve()
-    
+
     if not textbook_name_param or "/" in textbook_name_param or "\\" in textbook_name_param:
         print("错误：提供的教材名称无效。请提供不含路径分隔符的有效名称。", file=sys.stderr)
         return
@@ -342,7 +362,11 @@ def main(textbook_name_param: str):
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         textbook_name_arg = sys.argv[1]
+        # It's good practice to ensure no ".pdf" extension if this script expects a base name
+        if textbook_name_arg.lower().endswith(".pdf"):
+            textbook_name_arg = textbook_name_arg[:-4]
+
         main(textbook_name_arg)
     else:
-        print("用法: python your_script_name.py <textbook_name>")
-        print("示例: python your_script_name.py my_history_book")
+        print("用法: python get_catalog.py <textbook_name_without_extension>")
+        print("示例: python get_catalog.py my_history_book")

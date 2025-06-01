@@ -1,2 +1,0 @@
-LLM Output for chapter 7.2 that failed parsing:
-ERROR:API_CALL_FAILED

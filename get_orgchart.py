@@ -11,8 +11,25 @@ import dashscope # 假设已安装: pip install dashscope
 # 设置基本日志记录
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(module)s.%(funcName)s] %(message)s')
 
-# --- 默认配置文件名 ---
-DEFAULT_CONFIG_FILENAME = "config.json"
+# --- Constants defined as per requirements ---
+BERT_MODEL = "bert-base-chinese"
+CATALOG_FILENAME = "catalog.json" # Used by get_catalog.py
+CATALOG_SEGMENTS_FILENAME = "catalog_with_segments.json" # Input for this script
+EMBEDDING_BATCH_SIZE = 32
+FAISS_INDEX_FILENAME = "knowledge_points.index"
+IMAGES_SUBDIR_NAME = "textbook_images_dir"
+LLM_MODEL = "qwen-max"
+MAPPING_FILE_SUFFIX = ".mapping.json"
+ORGCHART_SUBDIR_NAME = "orgchart_dir" # Directory to store per-chapter orgchart JSONs
+TEXTBOOK_ORGCHART_FILENAME = "textbook_orgchart.json" # Final merged orgchart for the textbook
+PAGES_FOR_CATALOG = 30
+SEARCH_TOP_K = 3
+TEXT_SUBDIR_NAME = "textbook_text_dir"
+# This constant is used by this script for the root of the org chart.
+# Its value was provided in an earlier context. Adjust if necessary.
+BOOK_ROOT_TITLE = "马克思主义基本原理概论"
+# --- End of defined constants ---
+
 
 # --- LLM 提示 ---
 PROMPT_ORGCHART_CHAPTER_TEMPLATE = """
@@ -53,42 +70,6 @@ JSON输出格式示例 (这是一个节点列表):
 """
 
 # --- 辅助函数 ---
-
-def load_script_config(config_file_path: Path) -> Optional[Dict]:
-    """从指定的 JSON 文件加载此脚本相关的配置。"""
-    logging.info(f"正在从 '{config_file_path}' 加载 OrgChart 生成配置...")
-    try:
-        with open(config_file_path, 'r', encoding='utf-8') as f:
-            config_data = json.load(f)
-
-        required_keys = {
-            "catalog": str,          # 输入的是原始目录文件 (不强制要求有path_id)
-            "text_dir": str,
-            "llm_model": str,
-            "orgchart_dir": str,
-            "textbook_orgchart": str,
-            "book_root_title": str
-        }
-        for key, expected_type in required_keys.items():
-            if key not in config_data:
-                logging.error(f"错误：配置文件 '{config_file_path}' 中缺少键 '{key}' (OrgChart配置需要)。")
-                return None
-            if not isinstance(config_data[key], expected_type):
-                logging.error(f"错误：配置文件 '{config_file_path}' 中键 '{key}' 的类型不正确。期望类型：{expected_type}, 实际类型：{type(config_data[key])}。")
-                return None
-        
-        logging.info("OrgChart 生成配置加载成功。")
-        return config_data
-    except FileNotFoundError:
-        logging.error(f"错误：配置文件 '{config_file_path}' 未找到。")
-        return None
-    except json.JSONDecodeError as e:
-        logging.error(f"错误：解析配置文件 '{config_file_path}' 失败：{e}")
-        return None
-    except Exception as e:
-        logging.error(f"加载配置文件时发生未知错误：{e}")
-        return None
-
 def ensure_dir_exists(dir_path: Path):
     if not dir_path.exists():
         logging.info(f"创建目录: {dir_path}")
@@ -117,11 +98,11 @@ def read_text_file(file_path: Path) -> Optional[str]:
         logging.error(f"读取文件 {file_path} 时出错: {e}")
         return None
 
-def get_text_content_for_leaf(leaf_node_data: Dict, all_text_files: List[Path], text_dir_base_path: Path, chapter_path_id_for_log: str) -> Optional[str]:
+def get_text_content_for_leaf(leaf_node_data: Dict, all_text_files: List[Path], chapter_path_id_for_log: str) -> Optional[str]:
     """读取并连接给定叶节点的文本内容。"""
     start_file_name = leaf_node_data.get("actual_starting_page")
     end_file_name = leaf_node_data.get("actual_ending_page")
-    
+
     if not start_file_name or not end_file_name or \
        start_file_name in ["UNKNOWN", "PAGE_NOT_SPECIFIED", "INVALID_PAGE_FORMAT", "OFFSET_ERROR"] or \
        end_file_name in ["UNKNOWN", "PAGE_NOT_SPECIFIED", "INVALID_PAGE_FORMAT", "OFFSET_ERROR"]:
@@ -130,7 +111,7 @@ def get_text_content_for_leaf(leaf_node_data: Dict, all_text_files: List[Path], 
 
     try:
         filename_to_path = {p.name: p for p in all_text_files}
-        
+
         if start_file_name not in filename_to_path or end_file_name not in filename_to_path:
             logging.warning(f"节点 '{leaf_node_data.get('name')}' (生成ID: {chapter_path_id_for_log}) 的起始/结束文件 ({start_file_name} / {end_file_name}) 在文件列表中未找到。")
             return None
@@ -142,7 +123,7 @@ def get_text_content_for_leaf(leaf_node_data: Dict, all_text_files: List[Path], 
         if start_idx > end_idx:
             logging.warning(f"节点 '{leaf_node_data.get('name')}' (生成ID: {chapter_path_id_for_log}) 的起始文件索引 ({start_idx}) 大于结束文件索引 ({end_idx})。将只使用起始文件。")
             end_idx = start_idx
-        
+
         content_parts = []
         logging.info(f"为节点 {chapter_path_id_for_log} 读取文件范围 {start_file_name} 到 {end_file_name} (索引 {start_idx} 到 {end_idx})")
         for i in range(start_idx, end_idx + 1):
@@ -152,7 +133,7 @@ def get_text_content_for_leaf(leaf_node_data: Dict, all_text_files: List[Path], 
                 content_parts.append(content)
             else:
                 logging.warning(f"无法读取文件 {file_path} 的内容。")
-        
+
         return "\n\n".join(content_parts) if content_parts else None
 
     except ValueError:
@@ -162,33 +143,32 @@ def get_text_content_for_leaf(leaf_node_data: Dict, all_text_files: List[Path], 
         logging.error(f"获取 '{leaf_node_data.get('name')}' (生成ID: {chapter_path_id_for_log}) 的文本内容时出错: {e}")
         return None
 
-def call_llm_for_orgchart_nodes(api_key: Optional[str], chapter_path_id: str, chapter_name: str, chapter_content: str, model_name: str) -> Optional[List[Dict]]:
+def call_llm_for_orgchart_nodes(api_key: Optional[str], chapter_path_id: str, chapter_name: str, chapter_content: str, model_to_use: str) -> Optional[List[Dict]]:
     """为单个章节调用LLM以生成OrgChart JS的节点列表。"""
     if not api_key:
         logging.error("错误：DASHSCOPE_API_KEY 未设置。无法调用LLM。")
         return None
 
-    system_prompt = PROMPT_ORGCHART_CHAPTER_TEMPLATE.replace("{path_id_placeholder}", chapter_path_id) # path_id 现在是动态生成的
+    system_prompt = PROMPT_ORGCHART_CHAPTER_TEMPLATE.replace("{path_id_placeholder}", chapter_path_id)
     system_prompt = system_prompt.replace("{chapter_name_placeholder}", chapter_name)
     system_prompt = system_prompt.replace("{chapter_content_placeholder}", chapter_content)
-    
-    user_content_for_llm = "请根据以上提供的章节内容和系统提示，生成OrgChart JS的JSON节点列表。"
 
+    user_content_for_llm = "请根据以上提供的章节内容和系统提示，生成OrgChart JS的JSON节点列表。"
     messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_content_for_llm}]
-    
-    logging.info(f"\n--- 正在为章节 '{chapter_name}' (ID: {chapter_path_id}) 调用LLM ({model_name}) 生成OrgChart节点 ---")
+
+    logging.info(f"\n--- 正在为章节 '{chapter_name}' (ID: {chapter_path_id}) 调用LLM ({model_to_use}) 生成OrgChart节点 ---")
     try:
         response = dashscope.Generation.call(
             api_key=api_key,
-            model=model_name,
+            model=model_to_use,
             messages=messages,
-            result_format='message', 
+            result_format='message',
             stream=False
         )
         if response.status_code == 200 and response.output and response.output.choices:
             raw_text = response.output.choices[0].message.content
             logging.info(f"LLM对章节 '{chapter_name}' 的响应 (前200字符): {raw_text[:200]}...")
-            
+
             cleaned_text = re.sub(r"```json\s*", "", raw_text, flags=re.IGNORECASE).strip()
             cleaned_text = re.sub(r"```\s*$", "", cleaned_text).strip()
             cleaned_text = re.sub(r'^json\s*', '', cleaned_text, flags=re.IGNORECASE).strip()
@@ -224,7 +204,6 @@ def call_llm_for_orgchart_nodes(api_key: Optional[str], chapter_path_id: str, ch
     finally:
         logging.info(f"--- 结束对章节 '{chapter_name}' 的LLM调用 ---")
 
-
 def save_chapter_orgchart_json(data: List[Dict], output_file: Path, chapter_path_id_for_file: str):
     ensure_dir_exists(output_file.parent)
     try:
@@ -234,38 +213,35 @@ def save_chapter_orgchart_json(data: List[Dict], output_file: Path, chapter_path
     except Exception as e:
         logging.error(f"保存章节 {chapter_path_id_for_file} 的OrgChart JSON到 {output_file} 时出错: {e}")
 
-
 def process_leaf_node_for_orgchart(
-    leaf_node_data: Dict, 
-    generated_path_id: str, # 接收动态生成的path_id
-    all_text_files: List[Path], 
-    text_dir_path: Path,
-    orgchart_chapter_dir: Path, 
-    api_key: str, 
-    llm_model: str
+    leaf_node_data: Dict,
+    generated_path_id: str,
+    all_text_files: List[Path],
+    orgchart_chapter_dir: Path,
+    api_key: str,
+    model_to_use: str # Changed from llm_model
     ):
     """处理单个叶子节点：获取文本，调用LLM，保存结果。"""
     chapter_name = leaf_node_data.get("name")
 
-    if not chapter_name: # path_id 现在是传入的，所以只检查name
+    if not chapter_name:
         logging.warning(f"叶子节点缺少 name: {leaf_node_data} (生成ID: {generated_path_id})，跳过。")
         return
 
-    # 检查是否已经为该章节生成过OrgChart JSON，如果生成过则跳过
     output_filename = orgchart_chapter_dir / f"{generated_path_id.replace('.', '_')}.orgchart.json"
     if output_filename.exists():
         logging.info(f"章节 {chapter_name} (ID: {generated_path_id}) 的OrgChart JSON文件已存在，跳过生成。")
         return
 
     logging.info(f"开始处理叶子节点 {chapter_name} (ID: {generated_path_id}) 的OrgChart生成...")
-    chapter_content = get_text_content_for_leaf(leaf_node_data, all_text_files, text_dir_path, generated_path_id)
+    chapter_content = get_text_content_for_leaf(leaf_node_data, all_text_files, generated_path_id)
 
     if not chapter_content:
         logging.warning(f"未能获取叶子节点 {chapter_name} (ID: {generated_path_id}) 的文本内容。跳过LLM调用。")
         return
 
     orgchart_nodes_for_chapter = call_llm_for_orgchart_nodes(
-        api_key, generated_path_id, chapter_name, chapter_content, llm_model
+        api_key, generated_path_id, chapter_name, chapter_content, model_to_use
     )
 
     if orgchart_nodes_for_chapter:
@@ -273,71 +249,61 @@ def process_leaf_node_for_orgchart(
     else:
         logging.warning(f"未能为章节 {chapter_name} (ID: {generated_path_id}) 生成OrgChart节点列表。")
 
-
 def traverse_and_process_leaves(
-    nodes: List[Dict], 
-    all_text_files: List[Path], 
-    text_dir_path: Path,
-    orgchart_chapter_dir: Path, 
-    api_key: str, 
-    llm_model: str,
-    parent_path_id: str = "" # 用于构建当前节点的 path_id
+    nodes: List[Dict],
+    all_text_files: List[Path],
+    orgchart_chapter_dir: Path,
+    api_key: str,
+    model_to_use: str, # Changed from llm_model
+    parent_path_id: str = ""
     ):
     """递归遍历目录树，对每个叶子节点执行OrgChart JSON生成。"""
     for i, node_data in enumerate(nodes):
-        # 动态生成 path_id
         current_index_val = node_data.get("index")
-        current_index_str = str(current_index_val) if current_index_val is not None else str(i + 1) # 使用列表索引作为后备
+        current_index_str = str(current_index_val) if current_index_val is not None else str(i + 1)
         current_generated_path_id = f"{parent_path_id}{'.' if parent_path_id else ''}{current_index_str}"
-        
-        # 将生成的 path_id 存储回节点数据中，供后续合并步骤使用
-        node_data["generated_path_id"] = current_generated_path_id 
+        node_data["generated_path_id"] = current_generated_path_id
 
         if node_data.get("type") == "leaf":
             process_leaf_node_for_orgchart(
-                node_data, 
-                current_generated_path_id, # 传递生成的 path_id
-                all_text_files, 
-                text_dir_path, 
-                orgchart_chapter_dir, 
-                api_key, 
-                llm_model
+                node_data,
+                current_generated_path_id,
+                all_text_files,
+                orgchart_chapter_dir,
+                api_key,
+                model_to_use
             )
-        
+
         if node_data.get("children") and isinstance(node_data.get("children"), list):
             traverse_and_process_leaves(
-                node_data["children"], 
-                all_text_files, 
-                text_dir_path, 
-                orgchart_chapter_dir, 
-                api_key, 
-                llm_model,
-                current_generated_path_id # 传递当前节点的 path_id 作为子节点的父 path_id
+                node_data["children"],
+                all_text_files,
+                orgchart_chapter_dir,
+                api_key,
+                model_to_use,
+                current_generated_path_id
             )
 
-
 def merge_all_orgchart_data(
-    catalog_data: Dict, # 这个 catalog_data 现在是在 traverse_and_process_leaves 中被添加了 "generated_path_id" 的
-    orgchart_chapter_dir: Path, 
-    book_root_title: str,
+    catalog_data: Dict,
+    orgchart_chapter_dir: Path,
+    book_title_for_root: str, # Changed from book_root_title
     final_output_file: Path
     ):
     """将主目录结构与各个章节内部的OrgChart JSON数据合并。"""
     logging.info("开始合并所有OrgChart数据...")
     final_orgchart_nodes = []
-    
-    textbook_root_node_id = "TEXTBOOK_ROOT" 
+    textbook_root_node_id = "TEXTBOOK_ROOT"
     final_orgchart_nodes.append({
         "id": textbook_root_node_id,
-        "pid": None, 
-        "name": book_root_title,
-        "title": "全书概览" 
+        "pid": None,
+        "name": book_title_for_root, # Use passed parameter
+        "title": "全书概览"
     })
 
     def process_and_merge_recursive(catalog_nodes: List[Dict], parent_orgchart_id: str):
         for cat_node in catalog_nodes:
-            # 使用在遍历时动态生成的 path_id
-            current_node_orgchart_id = cat_node.get("generated_path_id") 
+            current_node_orgchart_id = cat_node.get("generated_path_id")
             if not current_node_orgchart_id:
                 logging.warning(f"目录节点 '{cat_node.get('name')}' 缺少 'generated_path_id'，无法合并。")
                 continue
@@ -348,7 +314,7 @@ def merge_all_orgchart_data(
                 "name": cat_node.get("name"),
                 "title": "章节" if cat_node.get("type") == "tree" else "知识单元章节",
                 "type_from_catalog": cat_node.get("type"),
-                "knowledge_points_count": len(cat_node.get("knowledge_points", [])), 
+                "knowledge_points_count": len(cat_node.get("knowledge_points", [])),
             })
 
             if cat_node.get("type") == "leaf":
@@ -357,25 +323,19 @@ def merge_all_orgchart_data(
                     try:
                         with open(chapter_orgchart_filename, 'r', encoding='utf-8') as f_ch_oc:
                             chapter_internal_nodes = json.load(f_ch_oc)
-                        
+
                         if isinstance(chapter_internal_nodes, list):
                             for internal_node in chapter_internal_nodes:
                                 internal_node_id_str = str(internal_node.get('id', 'unknown_internal_id'))
                                 internal_node_pid_str = str(internal_node.get('pid')) if internal_node.get('pid') is not None else None
-
                                 new_internal_id = f"{current_node_orgchart_id}__{internal_node_id_str}"
-                                new_internal_pid = None
-                                if internal_node_pid_str: 
-                                    new_internal_pid = f"{current_node_orgchart_id}__{internal_node_pid_str}"
-                                else: 
-                                    new_internal_pid = current_node_orgchart_id # 内部根节点的父是当前章节
-                                
+                                new_internal_pid = f"{current_node_orgchart_id}__{internal_node_pid_str}" if internal_node_pid_str else current_node_orgchart_id
                                 final_orgchart_nodes.append({
                                     "id": new_internal_id,
                                     "pid": new_internal_pid,
                                     "name": internal_node.get("name"),
                                     "title": internal_node.get("title", "内部节点"),
-                                    "isInternal": True 
+                                    "isInternal": True
                                 })
                         else:
                              logging.warning(f"章节 {current_node_orgchart_id} 的OrgChart文件 '{chapter_orgchart_filename.name}' 内容不是列表。")
@@ -383,12 +343,12 @@ def merge_all_orgchart_data(
                         logging.error(f"读取或处理章节 {current_node_orgchart_id} 的OrgChart文件 '{chapter_orgchart_filename.name}' 时出错: {e}")
                 else:
                     logging.warning(f"未找到章节 {current_node_orgchart_id} 的OrgChart文件: {chapter_orgchart_filename.name}")
-            
+
             if cat_node.get("children") and isinstance(cat_node.get("children"), list):
-                process_and_merge_recursive(cat_node["children"], current_node_orgchart_id) # 传递当前节点的ID作为子节点的父ID
-    
+                process_and_merge_recursive(cat_node["children"], current_node_orgchart_id)
+
     if catalog_data.get("chapters") and isinstance(catalog_data.get("chapters"), list):
-        process_and_merge_recursive(catalog_data["chapters"], textbook_root_node_id) # 顶级章节的父ID是总根节点
+        process_and_merge_recursive(catalog_data["chapters"], textbook_root_node_id)
     else:
         logging.error("输入的目录数据中缺少 'chapters' 列表。")
         return False
@@ -403,66 +363,69 @@ def merge_all_orgchart_data(
         logging.error(f"保存合并后的OrgChart JSON到 {final_output_file} 时出错: {e}")
         return False
 
-
-def main():
-    """主函数，编排整个流程。"""
-    try:
-        script_dir = Path(__file__).resolve().parent
-    except NameError:
-        script_dir = Path(os.getcwd()).resolve()
-    logging.info(f"脚本运行目录: {script_dir}")
-
-    config_path = script_dir / DEFAULT_CONFIG_FILENAME
-    config = load_script_config(config_path)
-    if not config:
-        logging.error("配置加载失败，程序中止。")
-        return
+def run_orgchart_generation(textbook_name: str, script_dir: Path):
+    """
+    为指定教材编排OrgChart生成过程。
+    此函数是脚本的主要逻辑入口点，可被其他脚本调用。
+    """
+    logging.info(f"开始为教材 '{textbook_name}' 生成OrgChart (脚本目录: {script_dir})")
 
     dashscope_api_key = os.getenv('DASHSCOPE_API_KEY')
     if not dashscope_api_key:
         logging.error("致命错误: 环境变量 DASHSCOPE_API_KEY 未设置。")
         return
 
-    input_catalog_file = script_dir / config["catalog"] # 使用原始目录文件
-    text_dir = script_dir / config["text_dir"]
-    llm_model = config["llm_model"]
-    orgchart_chapter_output_dir = script_dir / config["orgchart_dir"]
-    final_textbook_orgchart_file = script_dir / config["textbook_orgchart"]
-    book_root_title = config["book_root_title"]
+    # Path definitions using global constants and textbook_name
+    textbook_base_uploads_dir = script_dir / "uploads" / textbook_name
+    info_storage_dir = textbook_base_uploads_dir / "textbook_information"
 
-    ensure_dir_exists(orgchart_chapter_output_dir)
+    input_catalog_file = info_storage_dir / CATALOG_SEGMENTS_FILENAME # Assumes output from get_segment.py
+    text_files_dir = info_storage_dir / TEXT_SUBDIR_NAME
+    orgchart_per_chapter_dir = info_storage_dir / ORGCHART_SUBDIR_NAME
+    final_merged_orgchart_file = info_storage_dir / TEXTBOOK_ORGCHART_FILENAME
+
+    # Use global constants for configuration
+    current_llm_model = LLM_MODEL
+    current_book_root_title = BOOK_ROOT_TITLE # Global constant
+
+    logging.info(f"输入目录文件 (catalog_with_segments.json): {input_catalog_file}")
+    logging.info(f"OCR文本文件目录: {text_files_dir}")
+    logging.info(f"LLM模型: {current_llm_model}")
+    logging.info(f"章节OrgChart输出目录: {orgchart_per_chapter_dir}")
+    logging.info(f"最终教材OrgChart输出文件: {final_merged_orgchart_file}")
+    logging.info(f"书籍根标题 (用于OrgChart根节点): {current_book_root_title}")
+
+    ensure_dir_exists(orgchart_per_chapter_dir)
 
     if not input_catalog_file.exists():
-        logging.error(f"错误: 输入的目录文件 '{input_catalog_file}' 未找到。请先运行 get_catalog.py (确保它生成了层级结构和index)。")
+        logging.error(f"错误: 输入的目录文件 '{input_catalog_file}' 未找到。请确保 get_segment.py 已成功运行。")
         return
     try:
         with open(input_catalog_file, 'r', encoding='utf-8') as f:
-            catalog_data = json.load(f) # 这个 catalog_data 将在遍历时被添加 "generated_path_id"
+            catalog_data = json.load(f)
         logging.info(f"成功从 '{input_catalog_file}' 加载目录数据。")
     except Exception as e:
         logging.error(f"加载目录文件 '{input_catalog_file}' 时出错: {e}")
         return
-        
-    if not text_dir.is_dir():
-        logging.error(f"错误: 文本目录 '{text_dir}' 未找到。请先运行 images_and_ocr.py。")
-        return
-        
-    all_ocr_text_files = list_text_files(text_dir)
-    if not all_ocr_text_files:
-        logging.error(f"错误: 在OCR文本目录 '{text_dir}' 中未找到任何文本文件。")
+
+    if not text_files_dir.is_dir():
+        logging.error(f"错误: 文本目录 '{text_files_dir}' 未找到。请确保 images_and_ocr.py 已成功运行。")
         return
 
-    logging.info("\n--- 步骤1: 为每个叶子章节生成OrgChart内部结构JSON (动态生成path_id) ---")
+    all_ocr_text_files = list_text_files(text_files_dir)
+    if not all_ocr_text_files:
+        logging.error(f"错误: 在OCR文本目录 '{text_files_dir}' 中未找到任何文本文件。")
+        return
+
+    logging.info("\n--- 步骤1: 为每个叶子章节生成OrgChart内部结构JSON ---")
     if catalog_data.get("chapters") and isinstance(catalog_data.get("chapters"), list):
-        # 初始调用时 parent_path_id 为空字符串
         traverse_and_process_leaves(
-            catalog_data["chapters"], 
+            catalog_data["chapters"],
             all_ocr_text_files,
-            text_dir, 
-            orgchart_chapter_output_dir, 
-            dashscope_api_key, 
-            llm_model,
-            parent_path_id="" 
+            orgchart_per_chapter_dir, # Pass the correct directory for individual chapter orgcharts
+            dashscope_api_key,
+            current_llm_model,
+            parent_path_id=""
         )
     else:
         logging.error("目录数据中缺少 'chapters' 列表或格式不正确。")
@@ -470,19 +433,36 @@ def main():
     logging.info("--- 步骤1完成 ---")
 
     logging.info("\n--- 步骤2: 合并所有章节的OrgChart数据 ---")
-    # 此时 catalog_data 中的每个节点应该已经被 traverse_and_process_leaves 添加了 "generated_path_id"
     merge_success = merge_all_orgchart_data(
-        catalog_data, 
-        orgchart_chapter_output_dir, 
-        book_root_title,
-        final_textbook_orgchart_file
+        catalog_data,
+        orgchart_per_chapter_dir,
+        current_book_root_title,
+        final_merged_orgchart_file
     )
     if merge_success:
-        logging.info(f"--- 步骤2完成 ---")
+        logging.info("--- 步骤2完成 ---")
     else:
         logging.error("合并OrgChart数据失败。")
 
-    logging.info("get_orgchart.py 执行完毕。")
+    logging.info(f"教材 '{textbook_name}' 的OrgChart生成完毕。")
+
+
+def main_cli():
+    """Command-line interface handler."""
+    if len(sys.argv) > 1:
+        textbook_name_arg = sys.argv[1]
+        if textbook_name_arg.lower().endswith(".pdf"):
+            textbook_name_arg = textbook_name_arg[:-4] # Use base name
+
+        try:
+            current_script_dir = Path(__file__).resolve().parent
+        except NameError:
+            current_script_dir = Path(os.getcwd()).resolve() # Fallback
+
+        run_orgchart_generation(textbook_name_arg, current_script_dir)
+    else:
+        print(f"用法: python {Path(sys.argv[0]).name} <textbook_name_without_extension>")
+        print(f"示例: python {Path(sys.argv[0]).name} my_history_book")
 
 if __name__ == "__main__":
-    main()
+    main_cli()
