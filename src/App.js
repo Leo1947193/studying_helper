@@ -2,7 +2,7 @@
 //TODO: 1. 拆分组件
 //TODO: 2. 设计homepage
 //TODO: 3. 优化样式
-//TODO: 4. 给其他人列TODO
+//TODO: 4. 列TODO
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Layout, notification } from 'antd'; // 仅保留Ant Design的布局和通知
