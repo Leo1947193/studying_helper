@@ -3,11 +3,11 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Layout, Menu, Input, Button, Avatar, Dropdown, Space, List, Typography, Divider, Empty,
-  Upload, Card, Form, Select, Slider, Switch, notification, Tooltip, Spin, Modal, Tag, // 引入 Tag
+  Upload, Card, Form, Select, Slider, Switch, notification, Tooltip, Spin, Modal, Tag,
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, UserOutlined, MessageOutlined, FileOutlined, UploadOutlined,
-  SendOutlined, SettingOutlined, RobotOutlined,
+  SendOutlined, SettingOutlined, RobotOutlined, CopyOutlined, CheckOutlined, DownloadOutlined,
 } from '@ant-design/icons';
 import './App.css';
 
@@ -21,18 +21,34 @@ const BACKEND_BASE_URL = 'http://localhost:5000/api';
 
 function App() {
   // --- 状态管理 ---
-  const [activePane, setActivePane] = useState('chat'); // 'chat', 'files', 'settings'
+  const [activePane, setActivePane] = useState('chat'); // 'chat', 'files', 'settings' (templates now in modal)
   const [selectedChatId, setSelectedChatId] = useState(null); // 当前选中的对话ID
   const [messages, setMessages] = useState([]); // 当前对话的消息列表
 
   const [files, setFiles] = useState([]); // 文件列表
   const [chatHistory, setChatHistory] = useState([]); // 对话历史列表
 
-  const [chatInput, setChatInput] = useState(''); // 用户输入框的内容
+  const [chatInput, setChatInput] = useState('');
 
   // 新增：当前对话关联的文件ID列表和文件元数据列表
   const [relatedFileIds, setRelatedFileIds] = useState([]);
   const [relatedFilesMeta, setRelatedFilesMeta] = useState([]);
+
+  // 新增：文件上传类型
+  const [uploadFileType, setUploadFileType] = useState('other'); // '课本', '往年卷', '答案', '其他'
+
+  // 新增：模板与方法管理相关状态
+  const [templatesMethods, setTemplatesMethods] = useState([]);
+  const [loadingTemplatesMethods, setLoadingTemplatesMethods] = useState(false);
+  const [isTemplatesModalVisible, setIsTemplatesModalVisible] = useState(false); // 控制答题方法Modal的可见性
+  const [selectedFileForExtraction, setSelectedFileForExtraction] = useState(null); // 选中的用于提取模板的文件ID
+  const [extractionLoading, setExtractionLoading] = useState(false);
+  const [rewriteQuestion, setRewriteQuestion] = useState('');
+  const [originalAnswer, setOriginalAnswer] = useState('');
+  const [selectedMethodIndex, setSelectedMethodIndex] = useState(null);
+  const [rewrittenAnswer, setRewrittenAnswer] = useState('');
+  const [rewriteLoading, setRewriteLoading] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState(null); // 用于复制按钮的复制状态
 
   // 加载状态
   const [loadingFiles, setLoadingFiles] = useState(false);
@@ -51,7 +67,7 @@ function App() {
   // 文件预览相关状态
   const [isPreviewModalVisible, setIsPreviewModalVisible] = useState(false);
   const [currentPreviewFile, setCurrentPreviewFile] = useState(null);
-  const [previewFileContent, setPreviewFileContent] = useState(''); // 预览内容 (文本或图片URL或PDF URL)
+  const [previewFileContent, setPreviewFileContent] = useState('');
   const [loadingPreviewContent, setLoadingPreviewContent] = useState(false);
 
   // 引用详情Modal相关状态
@@ -111,8 +127,8 @@ function App() {
   const fetchChatMessages = useCallback(async (chatId) => {
     if (!chatId) {
       setMessages([]);
-      setRelatedFileIds([]); // 清空关联文件
-      setRelatedFilesMeta([]); // 清空关联文件元数据
+      setRelatedFileIds([]);
+      setRelatedFilesMeta([]);
       return;
     }
     setLoadingMessages(true);
@@ -121,10 +137,10 @@ function App() {
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
       }
-      const data = await response.json(); // 后端现在返回 {messages, related_files_meta}
+      const data = await response.json();
       setMessages(data.messages);
-      setRelatedFileIds(data.related_files_meta.map(f => f.id)); // 设置关联文件ID
-      setRelatedFilesMeta(data.related_files_meta); // 设置关联文件元数据
+      setRelatedFileIds(data.related_files_meta.map(f => f.id));
+      setRelatedFilesMeta(data.related_files_meta);
     } catch (error) {
       notification.error({
         message: '加载消息失败',
@@ -133,6 +149,27 @@ function App() {
       console.error('Error fetching chat messages:', error);
     } finally {
       setLoadingMessages(false);
+    }
+  }, []);
+
+  // 获取模板和方法列表
+  const fetchTemplatesMethods = useCallback(async () => {
+    setLoadingTemplatesMethods(true);
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/templates/list`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+      }
+      const data = await response.json();
+      setTemplatesMethods(data);
+    } catch (error) {
+      notification.error({
+        message: '加载模板失败',
+        description: `无法从后端获取模板和方法列表: ${error.message}`,
+      });
+      console.error('Error fetching templates/methods:', error);
+    } finally {
+      setLoadingTemplatesMethods(false);
     }
   }, []);
 
@@ -152,6 +189,13 @@ function App() {
     fetchChatMessages(selectedChatId);
   }, [selectedChatId, fetchChatMessages]);
 
+  // 当答题方法Modal可见时，加载模板数据
+  useEffect(() => {
+    if (isTemplatesModalVisible) {
+      fetchTemplatesMethods();
+    }
+  }, [isTemplatesModalVisible, fetchTemplatesMethods]); // 依赖于 isTemplatesModalVisible
+
   // 自动滚动到底部
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -164,7 +208,7 @@ function App() {
     if (info.file.status === 'done') {
       notification.success({
         message: '文件上传成功',
-        description: `${info.file.name} 已成功上传到您的文件库。`,
+        description: `${info.file.name} (类型: ${uploadFileType}) 已成功上传。`,
       });
       fetchFiles();
     } else if (info.file.status === 'error') {
@@ -201,7 +245,7 @@ function App() {
           message: userMessage.content,
           chatId: selectedChatId,
           modelSettings: modelSettings,
-          relatedFileIds: relatedFileIds, // <--- 新增：发送关联文件ID
+          relatedFileIds: relatedFileIds,
         }),
       });
 
@@ -211,25 +255,24 @@ function App() {
       }
 
       const data = await response.json();
-      // 关键修改：从 data.aiResponse 中获取 text 和 citations
-      const aiText = data.aiResponse.text || data.aiResponse; // 兼容旧的纯文本响应
-      const aiCitations = data.aiResponse.citations || []; // 获取引用数据
+      const aiText = data.aiResponse.text || data.aiResponse;
+      const aiCitations = data.aiResponse.citations || [];
 
       const aiResponse = {
         id: `m_ai_${Date.now() + 1}`,
         sender: 'ai',
         content: aiText,
         timestamp: new Date().toLocaleTimeString(),
-        citations_data: aiCitations, // <--- 将引用数据存储到消息对象中
-        isError: data.aiResponse.text && data.aiResponse.text.includes("错误") // 如果后端返回错误，也标记
+        citations_data: aiCitations,
+        isError: data.aiResponse.text && data.aiResponse.text.includes("错误")
       };
 
       setMessages(prev => [...prev, aiResponse]);
 
-      if (data.newChatId) { // 如果后端返回了新的对话ID，则更新前端的选中ID，并刷新对话历史列表
+      if (data.newChatId) {
         setSelectedChatId(data.newChatId);
         await fetchChatHistory();
-      } else if (selectedChatId) { // 如果是已有对话，刷新对话历史以更新 lastActive 时间
+      } else if (selectedChatId) {
         await fetchChatHistory();
       }
 
@@ -250,6 +293,44 @@ function App() {
       setSendingMessage(false);
     }
   };
+
+  // 导出对话为 DOCX
+  const handleExportChat = async () => {
+    if (!selectedChatId) {
+      notification.warn({ message: '请先选择一个对话再导出。' });
+      return;
+    }
+    notification.info({ message: '正在生成对话文档...' });
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/export-chat/${selectedChatId}`);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = 'chat_history.docx';
+      if (contentDisposition && contentDisposition.indexOf('filename=') !== -1) {
+        filename = contentDisposition.split('filename=')[1].replace(/"/g, '');
+      }
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+      notification.success({ message: '对话文档已导出成功！' });
+    } catch (error) {
+      notification.error({
+        message: '导出失败',
+        description: `无法导出对话文档: ${error.message}`,
+      });
+      console.error('Error exporting chat:', error);
+    }
+  };
+
 
   // 处理文件预览请求
   const handlePreview = async (file) => {
@@ -288,7 +369,6 @@ function App() {
         description: `无法加载文件内容: ${error.message}。请检查文件是否存在于服务器或后端服务是否正常。`,
       });
       console.error('Error loading preview:', error);
-      setPreviewFileContent('ERROR_LOADING_PREVIEW');
     } finally {
       setLoadingPreviewContent(false);
     }
@@ -308,11 +388,92 @@ function App() {
     setIsCitationModalVisible(true);
   };
 
+  // --- 新功能：答题方法和模板提取相关操作 ---
+  const handleExtractTemplatesFromFile = async () => {
+    if (!selectedFileForExtraction) {
+      notification.warn({ message: '请选择一个文件进行提取。' });
+      return;
+    }
+    setExtractionLoading(true);
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/templates/extract-from-file`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileId: selectedFileForExtraction }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      notification.success({
+        message: '提取成功',
+        description: data.message,
+      });
+      fetchTemplatesMethods(); // 刷新列表
+    } catch (error) {
+      notification.error({
+        message: '提取失败',
+        description: `无法提取模板和方法: ${error.message}`,
+      });
+      console.error('Error extracting templates:', error);
+    } finally {
+      setExtractionLoading(false);
+    }
+  };
+
+  const handleRewriteAnswer = async () => {
+    if (!rewriteQuestion.trim() || !originalAnswer.trim() || selectedMethodIndex === null) {
+      notification.warn({ message: '请填写题目、原始答案并选择答题方法。' });
+      return;
+    }
+    setRewriteLoading(true);
+    setRewrittenAnswer(''); // 清空上次结果
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/templates/rewrite-answer`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question: rewriteQuestion,
+          originalAnswer: originalAnswer,
+          methodIndex: selectedMethodIndex,
+        }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      setRewrittenAnswer(data.rewrittenAnswer);
+      notification.success({ message: '答案重写成功！' });
+    } catch (error) {
+      notification.error({
+        message: '重写失败',
+        description: `无法重写答案: ${error.message}`,
+      });
+      console.error('Error rewriting answer:', error);
+    } finally {
+      setRewriteLoading(false);
+    }
+  };
+
+  const handleCopy = (text, index) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex(null), 2000); // 2秒后恢复
+      notification.success({message: "已复制到剪贴板！"});
+    }).catch(err => {
+      notification.error({message: "复制失败，请手动复制！"});
+      console.error('Failed to copy text: ', err);
+    });
+  };
+
   // --- UI 渲染数据 ---
   const siderMenuItems = [
     { key: 'chat', icon: <MessageOutlined />, label: '对话历史' },
     { key: 'files', icon: <FileOutlined />, label: '我的文件' },
     { key: 'settings', icon: <SettingOutlined />, label: '应用设置' },
+    // 移除了 'templates' 菜单项，因为它现在由右侧的按钮触发Modal
   ];
 
   const currentChatTitle = selectedChatId
@@ -345,12 +506,12 @@ function App() {
             type="primary"
             icon={<PlusOutlined />}
             onClick={() => {
-              setSelectedChatId(null); // 设置为 null，表示要新建对话
-              setMessages([]); // 清空当前消息显示
-              setRelatedFileIds([]); // 新增：清空关联文件ID
-              setRelatedFilesMeta([]); // 新增：清空关联文件元数据
+              setSelectedChatId(null);
+              setMessages([]);
+              setRelatedFileIds([]);
+              setRelatedFilesMeta([]);
               notification.info({ message: '开始新的对话！' });
-              setActivePane('chat'); // 确保在对话面板
+              setActivePane('chat');
             }}
           >
             新建对话
@@ -393,25 +554,40 @@ function App() {
           <Divider style={{ margin: '0 0 16px 0' }} />
 
           {/* 文件上传区 */}
-          <div style={{ padding: '0 16px 16px', textAlign: 'center' }}>
-            <Upload
-              name="file"
-              action={`${BACKEND_BASE_URL}/upload`}
-              headers={{
-                // 'Authorization': `Bearer ${yourAuthToken}`
-              }}
-              onChange={handleUpload}
-              showUploadList={false}
-              multiple={false}
-            >
-              <Button icon={<UploadOutlined />} block>上传新文件</Button>
-            </Upload>
-            <Text type="secondary" style={{ fontSize: '12px', marginTop: 8, display: 'block' }}>支持PDF, DOCX, TXT等格式</Text>
+          <div style={{ padding: '0 16px 16px' }}>
+            <Title level={5} style={{ marginTop: 0, marginBottom: 12, textAlign: 'center' }}>上传新文件</Title>
+            <Form layout="vertical">
+              <Form.Item label="文件类型">
+                <Select
+                  value={uploadFileType}
+                  onChange={setUploadFileType}
+                  style={{ width: '100%' }}
+                >
+                  <Option value="textbook">课本</Option>
+                  <Option value="past_paper">往年卷</Option>
+                  <Option value="answer_key">答案</Option>
+                  <Option value="other">其他</Option>
+                </Select>
+              </Form.Item>
+              <Form.Item>
+                <Upload
+                  name="file"
+                  action={`${BACKEND_BASE_URL}/upload`}
+                  data={{ file_type_tag: uploadFileType }} // 传递文件类型标签
+                  onChange={handleUpload}
+                  showUploadList={false}
+                  multiple={false}
+                >
+                  <Button icon={<UploadOutlined />} block>选择并上传文件</Button>
+                </Upload>
+              </Form.Item>
+            </Form>
+            <Text type="secondary" style={{ fontSize: '12px', marginTop: 0, display: 'block', textAlign: 'center' }}>支持PDF, DOCX, TXT等格式</Text>
           </div>
 
           <Divider style={{ margin: '0 0 16px 0' }} />
 
-          {/* 文件列表或对话历史或设置内容 */}
+          {/* 左侧侧边栏底部根据 activePane 渲染内容 */}
           <div style={{ padding: '0 16px 16px' }}>
             {activePane === 'files' && (
               <Spin spinning={loadingFiles}>
@@ -422,7 +598,6 @@ function App() {
                     <List.Item
                       key={file.id}
                       actions={[
-                        // 新增：添加到当前对话按钮
                         <Tooltip title="添加到当前对话">
                           <Button
                             type="text"
@@ -454,7 +629,7 @@ function App() {
                       <List.Item.Meta
                         avatar={<FileOutlined />}
                         title={<a onClick={() => console.log('点击文件:', file.name)}>{file.name}</a>}
-                        description={<Text type="secondary">{file.size} - {file.uploadDate}</Text>}
+                        description={<Text type="secondary">{file.size} - {file.uploadDate} (类型: {file.file_type_tag || '未知'})</Text>}
                       />
                     </List.Item>
                   )}
@@ -491,17 +666,15 @@ function App() {
                  {!chatHistory.length && !loadingChatHistory && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无对话历史" style={{ marginTop: 50 }} />}
               </Spin>
             )}
+            {/* 'settings' 模式下，左侧这里不再显示内容，因为右侧栏会显示其详细内容 */}
             {activePane === 'settings' && (
-              <div style={{ padding: '16px' }}>
-                 <Title level={5}>应用设置</Title>
-                 <Text type="secondary">这里将显示应用的全局设置，例如账户设置、隐私设置等。</Text>
-                 <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无更多设置项" style={{ marginTop: 50 }} />
-              </div>
+              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="在右侧管理应用设置" style={{ marginTop: 50 }} />
             )}
+            {/* templates 模式已经取消，所以这里不再显示 */}
           </div>
         </Sider>
 
-        {/* 中间和右侧内容区（Content） */}
+        {/* 中间主要内容区（大模型对话） */}
         <Content style={{ display: 'flex', flexGrow: 1 }}>
           <div style={{
             flex: 1,
@@ -515,6 +688,14 @@ function App() {
             <div style={{ padding: '16px 24px', borderBottom: '1px solid #e0e0e0', background: '#fff' }}>
               <Title level={4} style={{ margin: 0 }}>
                 {currentChatTitle}
+                <Tooltip title="导出当前对话为DOCX文件">
+                  <Button
+                    icon={<DownloadOutlined />}
+                    type="text"
+                    style={{ marginLeft: 10 }}
+                    onClick={handleExportChat}
+                  />
+                </Tooltip>
               </Title>
               {relatedFilesMeta.length > 0 && (
                   <div style={{ marginTop: 10, marginBottom: -8 }}>
@@ -631,7 +812,7 @@ function App() {
             </div>
           </div>
 
-          {/* 右侧功能/工具区 - 确保它内部滚动 */}
+          {/* 右侧功能/工具区 - 根据 activePane 渲染不同内容，并始终显示答题方法按钮 */}
           <div style={{
             flex: '0 0 350px',
             background: '#fff',
@@ -640,66 +821,77 @@ function App() {
             borderLeft: '1px solid #e0e0e0',
             minHeight: 0,
           }}>
-            <Title level={4} style={{ marginTop: 0, marginBottom: 20 }}>对话设置与工具</Title>
+            {/* 始终显示的通用工具按钮 */}
+            <Title level={4} style={{ marginTop: 0, marginBottom: 20 }}>通用工具</Title>
+            <Space direction="vertical" style={{ width: '100%' }}>
+              <Button
+                block
+                icon={<RobotOutlined />}
+                onClick={() => setIsTemplatesModalVisible(true)} // 点击打开答题方法Modal
+              >
+                答题方法与模板
+              </Button>
+              {/* 这里可以添加其他通用工具按钮 */}
+            </Space>
+            <Divider />
 
-            <Form layout="vertical">
-              <Form.Item label="选择模型">
-                <Select
-                  value={modelSettings.model}
-                  onChange={(value) => setModelSettings({ ...modelSettings, model: value })}
-                >
-                  <Option value="deepseek-chat">DeepSeek Chat</Option>
-                  <Option value="deepseek-coder">DeepSeek Coder</Option>
-                </Select>
-              </Form.Item>
+            {/* 对话模式下的设置 */}
+            {activePane === 'chat' && (
+              <>
+                <Title level={4} style={{ marginTop: 0, marginBottom: 20 }}>对话设置</Title>
+                <Form layout="vertical">
+                  <Form.Item label="选择模型">
+                    <Select
+                      value={modelSettings.model}
+                      onChange={(value) => setModelSettings({ ...modelSettings, model: value })}
+                    >
+                      <Option value="deepseek-chat">DeepSeek Chat</Option>
+                      <Option value="deepseek-coder">DeepSeek Coder</Option>
+                    </Select>
+                  </Form.Item>
 
-              <Form.Item label="温度 (Temperature)" tooltip="控制生成文本的随机性，值越高越有创意，越低越保守。">
-                <Slider
-                  min={0}
-                  max={1}
-                  step={0.1}
-                  value={modelSettings.temperature}
-                  onChange={(value) => setModelSettings({ ...modelSettings, temperature: value })}
-                />
-                <Text type="secondary">{modelSettings.temperature.toFixed(1)}</Text>
-              </Form.Item>
+                  <Form.Item label="温度 (Temperature)" tooltip="控制生成文本的随机性，值越高越有创意，越低越保守。">
+                    <Slider
+                      min={0}
+                      max={1}
+                      step={0.1}
+                      value={modelSettings.temperature}
+                      onChange={(value) => setModelSettings({ ...modelSettings, temperature: value })}
+                    />
+                    <Text type="secondary">{modelSettings.temperature.toFixed(1)}</Text>
+                  </Form.Item>
 
-              <Form.Item label="模型人格">
-                <Select
-                  value={modelSettings.persona}
-                  onChange={(value) => setModelSettings({ ...modelSettings, persona: value })}
-                >
-                  <Option value="default">默认</Option>
-                  <Option value="professional">专业</Option>
-                  <Option value="creative">创意</Option>
-                  <Option value="friendly">友好</Option>
-                </Select>
-              </Form.Item>
+                  <Form.Item label="模型人格">
+                    <Select
+                      value={modelSettings.persona}
+                      onChange={(value) => setModelSettings({ ...modelSettings, persona: value })}
+                    >
+                      <Option value="default">默认</Option>
+                      <Option value="professional">专业</Option>
+                      <Option value="creative">创意</Option>
+                      <Option value="friendly">友好</Option>
+                    </Select>
+                  </Form.Item>
 
-              <Form.Item label="启用流式输出" valuePropName="checked">
-                <Switch
-                  checked={modelSettings.enableStreaming}
-                  onChange={(checked) => setModelSettings({ ...modelSettings, enableStreaming: checked })}
-                />
-              </Form.Item>
+                  <Form.Item label="启用流式输出" valuePropName="checked">
+                    <Switch
+                      checked={modelSettings.enableStreaming}
+                      onChange={(checked) => setModelSettings({ ...modelSettings, enableStreaming: checked })}
+                    />
+                  </Form.Item>
+                </Form>
+              </>
+            )}
 
-              <Divider />
-              <Title level={5}>常用提示词</Title>
-              <Space direction="vertical" style={{ width: '100%' }}>
-                <Button block onClick={() => setChatInput(prev => prev + '总结上述对话内容。')}>总结对话</Button>
-                <Button block onClick={() => setChatInput(prev => prev + '请用英文翻译以下句子：')}>翻译</Button>
-                <Button block onClick={() => setChatInput(prev => prev + '生成一个关于[主题]的营销方案。')}>营销方案</Button>
-              </Space>
-
-              <Divider />
-              <Title level={5}>文件操作 (当前对话无文件)</Title>
-              <Empty
-                description="请在对话中提及文件或从左侧文件库选择"
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-                imageStyle={{ height: 60 }}
-                style={{ padding: '20px 0' }}
-              />
-            </Form>
+            {/* 文件模式和设置模式下的通用提示 */}
+            {(activePane === 'files' || activePane === 'settings') && (
+              <>
+                {/* 这里的Title可以根据activePane动态改变，或者保持通用 */}
+                <Title level={4} style={{ marginTop: 0, marginBottom: 20 }}>辅助信息</Title>
+                <Empty description="请在左侧选择对应功能菜单" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+              </>
+            )}
+            {/* 移除了旧的常用提示词和文件操作区域 */}
           </div>
         </Content>
       </Layout>
@@ -794,6 +986,127 @@ function App() {
               autoSize={{ minRows: 10, maxRows: 25 }}
               style={{ width: '100%', border: 'none', background: '#f8f8f8' }}
           />
+      </Modal>
+
+      {/* 答题方法与模板 Modal (新增) */}
+      <Modal
+        title="答题方法与出题模板"
+        visible={isTemplatesModalVisible}
+        onCancel={() => setIsTemplatesModalVisible(false)}
+        footer={null} // 不显示默认Footer，所有按钮都在Form内部
+        width={800} // 根据内容调整宽度
+        bodyStyle={{ maxHeight: '80vh', overflowY: 'auto' }} // 可滚动
+      >
+        <Spin spinning={loadingTemplatesMethods || extractionLoading || rewriteLoading}>
+          <Divider orientation="left" style={{ margin: '16px 0' }}>从文件提取</Divider>
+          <Form layout="vertical">
+            <Form.Item label="选择文件">
+              <Select
+                placeholder="选择要分析的文件"
+                value={selectedFileForExtraction}
+                onChange={setSelectedFileForExtraction}
+                style={{ width: '100%' }}
+              >
+                {files.map(file => (
+                  <Option key={file.id} value={file.id}>
+                    {file.name} (类型: {file.file_type_tag || '未知'})
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+            <Form.Item>
+              <Button
+                type="primary"
+                onClick={handleExtractTemplatesFromFile}
+                loading={extractionLoading}
+                block
+                disabled={!selectedFileForExtraction}
+              >
+                从文件中提取出题模板与答题方法
+              </Button>
+            </Form.Item>
+          </Form>
+
+          <Divider orientation="left" style={{ margin: '16px 0' }}>已保存的模板与方法</Divider>
+          <List
+            dataSource={templatesMethods}
+            renderItem={(item, index) => (
+              <List.Item
+                actions={[
+                  <Tooltip title="复制答题方法">
+                    <Button
+                      type="text"
+                      icon={copiedIndex === index ? <CheckOutlined style={{ color: 'green' }} /> : <CopyOutlined />}
+                      size="small"
+                      onClick={() => handleCopy(item.answer_method, index)}
+                    />
+                  </Tooltip>
+                ]}
+              >
+                <List.Item.Meta
+                  title={<Text strong>出题模板: {item.question_template}</Text>}
+                  description={<Text type="secondary">答题方法: {item.answer_method}</Text>}
+                />
+              </List.Item>
+            )}
+          />
+          {!templatesMethods.length && !loadingTemplatesMethods && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无保存的模板和方法" style={{ marginTop: 50 }} />}
+
+          <Divider orientation="left" style={{ margin: '16px 0' }}>根据方法重写答案</Divider>
+          <Form layout="vertical">
+            <Form.Item label="选择答题方法">
+              <Select
+                placeholder="选择一个已提取的答题方法"
+                value={selectedMethodIndex}
+                onChange={setSelectedMethodIndex}
+                style={{ width: '100%' }}
+              >
+                {templatesMethods.map((item, index) => (
+                  <Option key={index} value={index}>
+                    模板: {item.question_template} | 方法: {item.answer_method}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+            <Form.Item label="原始题目">
+              <Input.TextArea
+                value={rewriteQuestion}
+                onChange={(e) => setRewriteQuestion(e.target.value)}
+                placeholder="请输入原始题目"
+                autoSize={{ minRows: 1, maxRows: 3 }}
+              />
+            </Form.Item>
+            <Form.Item label="原始答案">
+              <Input.TextArea
+                value={originalAnswer}
+                onChange={(e) => setOriginalAnswer(e.target.value)}
+                placeholder="请输入原始答案"
+                autoSize={{ minRows: 3, maxRows: 6 }}
+              />
+            </Form.Item>
+            <Form.Item>
+              <Button
+                type="primary"
+                onClick={handleRewriteAnswer}
+                loading={rewriteLoading}
+                block
+                disabled={!rewriteQuestion.trim() || !originalAnswer.trim() || selectedMethodIndex === null}
+              >
+                重写答案
+              </Button>
+            </Form.Item>
+            {rewrittenAnswer && (
+              <Form.Item label="重写后的答案">
+                <Input.TextArea
+                  value={rewrittenAnswer}
+                  readOnly
+                  autoSize={{ minRows: 3, maxRows: 8 }}
+                  style={{ background: '#f0f2f5' }}
+                />
+              </Form.Item>
+            )}
+          </Form>
+        </Spin>
       </Modal>
     </Layout>
   );
