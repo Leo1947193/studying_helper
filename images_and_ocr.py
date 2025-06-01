@@ -4,6 +4,7 @@ from pdf2image import convert_from_path
 from paddleocr import PaddleOCR
 import logging
 import os
+import sys
 
 # 设置基本日志记录
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -22,7 +23,7 @@ def convert_pdf_to_images(pdf_path: Path, output_dir: Path):
     将PDF文件转换为JPEG图像，每页一张图像。
     图像命名为 page_0001.jpg, page_0002.jpg, 等。
     """
-    ensure_dir_exists(output_dir)
+    ensure_dir_exists(output_dir) # Output_dir is .../uploads/<textbook_name>_dir/images_dir/
     logging.info(f"正在将 PDF '{pdf_path}' 转换为图像，保存至 '{output_dir}'...")
     
     try:
@@ -56,7 +57,7 @@ def ocr_images_in_dir(images_source_dir: Path, text_output_dir: Path):
     并将提取的文本保存到 text_output_dir 中的 .txt 文件。
     文本文件命名为 page0001.txt, page0002.txt, 等。
     """
-    ensure_dir_exists(text_output_dir)
+    ensure_dir_exists(text_output_dir) # text_output_dir is .../uploads/<textbook_name>_dir/text_dir/
     
     # 初始化 PaddleOCR - CPU版本，默认使用中文模型。
     logging.info("正在初始化 PaddleOCR (CPU版本, lang='ch')。这可能需要一些时间...")
@@ -104,57 +105,85 @@ def ocr_images_in_dir(images_source_dir: Path, text_output_dir: Path):
             
     logging.info("OCR处理已完成。")
 
-def main():
-    """主函数，用于编排整个OCR流程。"""
+def main(textbook_name: str):
+    """
+    主函数，用于编排指定教材的整个OCR流程。
+    Args:
+        textbook_name (str): 教材的名称 (不含.pdf扩展名)。
+                             例如 "my_amazing_textbook"
+    """
+    if not textbook_name:
+        logging.error("错误: 未提供教材名称。")
+        return
+
     # 获取脚本所在的目录
     script_dir = Path(__file__).resolve().parent
-    config_path = script_dir / "config.json"
+    
+    # 定义将要在每个教材特定目录中创建的子目录的名称
+    images_subdir_name = "images_dir"  # Hardcoded as per requirement
+    text_subdir_name = "text_dir"      # Hardcoded as per requirement
 
-    if not config_path.exists():
-        logging.error(f"配置文件未找到: {config_path}")
-        return
+    # 构建特定教材的处理根目录路径
+    # 例如: <script_dir>/uploads/my_amazing_textbook_dir/
+    base_textbook_processing_dir = script_dir / "uploads" / f"{textbook_name}_dir"
+    
+    # 确保这个特定于教材的根目录存在
+    ensure_dir_exists(base_textbook_processing_dir)
 
-    try:
-        with open(config_path, "r", encoding="utf-8") as f: # 指定utf-8编码读取config.json
-            config = json.load(f)
-    except json.JSONDecodeError:
-        logging.error(f"从 {config_path} 解码JSON时出错。")
-        return
-    except Exception as e:
-        logging.error(f"无法读取配置文件 {config_path}: {e}")
-        return
+    # 构建PDF文件的完整路径
+    # 例如: <script_dir>/uploads/my_amazing_textbook_dir/my_amazing_textbook.pdf
+    pdf_file_path = base_textbook_processing_dir / f"{textbook_name}.pdf"
 
-    # 从配置中获取值并构建绝对路径
-    images_dir_name = config.get("images_dir")
-    text_dir_name = config.get("text_dir")
-    textbook_filename = config.get("textbook_name")
+    # 构建图像输出目录的路径
+    # 例如: <script_dir>/uploads/my_amazing_textbook_dir/images_dir/
+    images_output_dir_path = base_textbook_processing_dir / images_subdir_name
 
-    if not all([images_dir_name, text_dir_name, textbook_filename]):
-        logging.error("config.json 文件中缺少一个或多个必需字段: 'images_dir', 'text_dir', 'textbook_name'")
-        return
+    # 构建文本输出目录的路径
+    # 例如: <script_dir>/uploads/my_amazing_textbook_dir/text_dir/
+    text_output_dir_path = base_textbook_processing_dir / text_subdir_name
 
-    # 构建相对于脚本目录的绝对路径
-    images_dir_path = script_dir / images_dir_name
-    text_dir_path = script_dir / text_dir_name
-    # 假设PDF文件与脚本在同一目录
-    pdf_file_path = script_dir / textbook_filename 
+    logging.info(f"开始处理教材: {textbook_name}")
+    logging.info(f"脚本目录: {script_dir}")
+    logging.info(f"教材处理根目录: {base_textbook_processing_dir}")
+    logging.info(f"预期的PDF路径: {pdf_file_path}")
+    logging.info(f"图像输出目录: {images_output_dir_path}")
+    logging.info(f"文本输出目录: {text_output_dir_path}")
 
     if not pdf_file_path.exists():
         logging.error(f"教材PDF文件未找到: {pdf_file_path}")
-        logging.error(f"请确保 '{textbook_filename}' 文件位于目录: {script_dir} 中。")
+        logging.error(f"请确保 '{textbook_name}.pdf' 文件位于目录: {base_textbook_processing_dir} 中。")
         return
 
     # 步骤1: 将PDF转换为图像
-    conversion_successful = convert_pdf_to_images(pdf_file_path, images_dir_path)
+    conversion_successful = convert_pdf_to_images(pdf_file_path, images_output_dir_path)
     
     if not conversion_successful:
-        logging.error("由于PDF转换失败，脚本已停止。")
+        logging.error(f"由于PDF '{pdf_file_path.name}' 转换失败，脚本已停止。")
         return
 
     # 步骤2: 对生成的图像执行OCR
-    ocr_images_in_dir(images_dir_path, text_dir_path)
+    ocr_images_in_dir(images_output_dir_path, text_output_dir_path)
 
-    logging.info("脚本执行完毕。")
+    logging.info(f"教材 '{textbook_name}' 处理完毕。")
 
 if __name__ == "__main__":
-    main()
+    # 当脚本直接执行时，可以从命令行参数获取教材名称
+    if len(sys.argv) > 1:
+        textbook_name_arg = sys.argv[1]
+        # 假设教材名称不包含 .pdf，如果包含则移除
+        if textbook_name_arg.lower().endswith(".pdf"):
+            textbook_name_arg = textbook_name_arg[:-4]
+        
+        # 检查教材名称是否有效 (例如，不为空，不包含路径分隔符等)
+        # 这里只做一个简单的检查
+        if not textbook_name_arg or "/" in textbook_name_arg or "\\" in textbook_name_arg:
+            print("错误：提供的教材名称无效。请提供不含路径分隔符的有效名称。")
+            print("用法: python images_and_ocr.py <textbook_name_without_extension>")
+        else:
+            main(textbook_name_arg)
+    else:
+        print("用法: python images_and_ocr.py <textbook_name_without_extension>")
+        print("示例: python images_and_ocr.py my_textbook")
+        # 或者，您可以为测试设置一个默认值：
+        # logging.info("未提供教材名称参数，使用默认值 'sample_book' 进行测试。")
+        # main("sample_book") # 用于测试

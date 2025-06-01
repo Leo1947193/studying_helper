@@ -1,0 +1,134 @@
+[
+    {
+        "id": "chapter_content_root",
+        "name": "第二节 科学社会主义基本原则",
+        "pid": null,
+        "title": "本章核心"
+    },
+    {
+        "id": "topic_1",
+        "name": "科学社会主义基本原则概述",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_1a",
+        "name": "科学社会主义基本原则是社会主义事业发展规律的集中体现",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1b",
+        "name": "科学社会主义基本原则与当代中国实际和中华优秀传统文化的有机统一",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_2",
+        "name": "科学社会主义基本原则的主要内容",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_2a",
+        "name": "资本主义必然灭亡，社会主义必然胜利",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2b",
+        "name": "无产阶级是最先进最革命的阶级",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2c",
+        "name": "无产阶级革命是无产阶级进行斗争的最高形式",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2d",
+        "name": "要在生产资料公有制基础上组织生产",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2e",
+        "name": "要对社会生产进行有计划的指导和调节",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2f",
+        "name": "要合乎自然规律地改造和利用自然",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2g",
+        "name": "必须坚持科学的理论指导，大力发展社会主义先进文化",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2h",
+        "name": "无产阶级政党是无产阶级的先锋队",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2i",
+        "name": "社会主义社会要大力解放和发展生产力",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2j",
+        "name": "共产主义是人类最美好的社会制度",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_3",
+        "name": "正确把握科学社会主义基本原则",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_3a",
+        "name": "必须始终坚持科学社会主义基本原则",
+        "pid": "topic_3",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_3b",
+        "name": "要善于把科学社会主义基本原则与本国实际和时代特征相结合",
+        "pid": "topic_3",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_3c",
+        "name": "紧跟时代和实践的发展，在不断总结新鲜经验中进一步丰富和发展科学社会主义基本原则",
+        "pid": "topic_3",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_4",
+        "name": "科学社会主义基本原则与中国特色社会主义",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_4a",
+        "name": "中国特色社会主义始终坚持科学社会主义基本原则",
+        "pid": "topic_4",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_4b",
+        "name": "中国特色社会主义根据时代条件赋予其鲜明的中国特色",
+        "pid": "topic_4",
+        "title": "子议题"
+    }
+]

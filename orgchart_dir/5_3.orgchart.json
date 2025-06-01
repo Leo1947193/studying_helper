@@ -1,0 +1,74 @@
+[
+    {
+        "id": "chapter_content_root",
+        "name": "第三节 资本主义上层建筑",
+        "pid": null,
+        "title": "本章核心"
+    },
+    {
+        "id": "topic_1",
+        "name": "资本主义政治上层建筑",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_1a",
+        "name": "资本主义政治制度及其本质",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1b",
+        "name": "资本主义国家的职能和本质",
+        "pid": "subtopic_1a",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1c",
+        "name": "资本主义民主制度及其本质",
+        "pid": "subtopic_1a",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1d",
+        "name": "资本主义法律制度",
+        "pid": "subtopic_1c",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1e",
+        "name": "资本主义政权组织形式",
+        "pid": "subtopic_1c",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1f",
+        "name": "资本主义选举制度",
+        "pid": "subtopic_1c",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1g",
+        "name": "资本主义政党制度",
+        "pid": "subtopic_1c",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_2",
+        "name": "资本主义观念上层建筑",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_2a",
+        "name": "资本主义意识形态的形成",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2b",
+        "name": "资本主义意识形态的核心思想",
+        "pid": "topic_2",
+        "title": "子议题"
+    }
+]

@@ -7,10 +7,7 @@ import sys
 
 import dashscope # 假设已安装: pip install dashscope
 
-# --- 默认配置文件名 ---
-DEFAULT_CONFIG_FILENAME = "config.json" # 使用统一的配置文件名
-
-# --- LLM 提示 (PROMPT_TEXT_SEGMENT_TEMPLATE 保持不变，为了简洁此处省略，实际代码中应包含它) ---
+# --- LLM 提示 ---
 PROMPT_TEXT_SEGMENT_TEMPLATE = """
 你是一位专业的AI文本分析助手，擅长从学术文本中提炼核心知识。
 你将收到一个章节的标题和其完整的文本内容。该文本内容可能包含一些OCR引入的无关信息（如页眉、页脚、页码）或一些不影响核心语义的冗余表达。
@@ -50,48 +47,6 @@ PROMPT_TEXT_SEGMENT_TEMPLATE = """
 
 # --- 辅助函数 ---
 
-def load_segmenter_config(config_file_path: Path) -> Optional[Dict]:
-    """
-    从指定的 JSON 文件加载分段与知识点提取相关的配置。
-
-    Args:
-        config_file_path (Path): 配置文件的完整路径。
-
-    Returns:
-        Optional[Dict]: 如果加载成功则返回配置字典，否则返回 None。
-    """
-    print(f"正在从 '{config_file_path}' 加载分段器配置...")
-    try:
-        with open(config_file_path, 'r', encoding='utf-8') as f:
-            config_data = json.load(f)
-
-        # 验证分段器脚本所需的键是否存在且类型正确
-        required_keys = {
-            "text_dir": str,             # 作为此脚本的文本输入目录名
-            "catalog": str,        # 作为此脚本的目录输入文件名
-            "catalog_segments": str, # 此脚本的输出文件名
-            "llm_model": str
-        }
-        for key, expected_type in required_keys.items():
-            if key not in config_data:
-                print(f"错误：配置文件 '{config_file_path}' 中缺少键 '{key}' (分段器配置需要)。", file=sys.stderr)
-                return None
-            if not isinstance(config_data[key], expected_type):
-                print(f"错误：配置文件 '{config_file_path}' 中键 '{key}' 的类型不正确。期望类型：{expected_type}, 实际类型：{type(config_data[key])}。", file=sys.stderr)
-                return None
-        
-        print("分段器配置加载成功。")
-        return config_data
-    except FileNotFoundError:
-        print(f"错误：配置文件 '{config_file_path}' 未找到。请创建该文件。", file=sys.stderr)
-        return None
-    except json.JSONDecodeError as e:
-        print(f"错误：解析配置文件 '{config_file_path}' 失败：{e}", file=sys.stderr)
-        return None
-    except Exception as e:
-        print(f"加载配置文件时发生未知错误：{e}", file=sys.stderr)
-        return None
-
 def list_text_files(text_dir_path: Path) -> List[Path]:
     """列出并排序所有文本文件 (page*.txt)。"""
     try:
@@ -120,7 +75,7 @@ def save_json_data(data: Optional[Dict], output_file: Path, message_prefix: str 
         print(f"警告: {message_prefix} 数据为 None，不保存文件 {output_file}。", file=sys.stderr)
         return False
     try:
-        output_file.parent.mkdir(parents=True, exist_ok=True) # 确保输出目录存在
+        output_file.parent.mkdir(parents=True, exist_ok=True)
         with open(output_file, 'w', encoding='utf-8') as f:
             json.dump(data, f, indent=4, ensure_ascii=False)
         print(f"{message_prefix}已成功保存到 '{output_file}'")
@@ -141,14 +96,14 @@ def call_llm_dashscope_text(api_key: Optional[str], system_prompt_with_content: 
 
     messages = [
         {"role": "system", "content": system_prompt_with_content},
-        {"role": "user", "content": "请根据系统提示生成所需的JSON输出。"} # 通用用户指令
+        {"role": "user", "content": "请根据系统提示生成所需的JSON输出。"}
     ]
 
     print(f"\n--- 正在调用文本模型: {model_name} ---")
     try:
         response = dashscope.Generation.call(
             api_key=api_key,
-            model=model_name, # 使用传入的模型名称
+            model=model_name,
             messages=messages,
             result_format='message',
             stream=False
@@ -173,10 +128,8 @@ def parse_json_from_llm(llm_output: str) -> Optional[Dict]:
         return None
 
     print("--- 开始清理并解析 LLM 输出 ---")
-    # 移除常见的Markdown代码块标记
     cleaned_string = re.sub(r"```json\s*", "", llm_output, flags=re.IGNORECASE).strip()
     cleaned_string = re.sub(r"```\s*$", "", cleaned_string).strip()
-    # 移除可能存在于开头的 "json" 关键字
     cleaned_string = re.sub(r'^json\s*', '', cleaned_string, flags=re.IGNORECASE).strip()
     
     first_brace = cleaned_string.find('{')
@@ -234,7 +187,7 @@ def get_text_content_for_leaf(leaf_node: Dict, all_text_files: List[Path]) -> Op
         
         return "\n\n".join(content_parts) if content_parts else None
 
-    except ValueError: # .index() 方法在未找到元素时抛出 ValueError
+    except ValueError:
         print(f"错误: 文件名 '{start_file_name}' 或 '{end_file_name}' 未在排序的文件列表中找到。", file=sys.stderr)
         return None
     except Exception as e:
@@ -242,7 +195,7 @@ def get_text_content_for_leaf(leaf_node: Dict, all_text_files: List[Path]) -> Op
         return None
 
 def process_chapters_for_segmentation(
-    chapter_nodes: List[Dict], # 此列表的元素将被直接修改
+    chapter_nodes: List[Dict],
     all_text_files: List[Path],
     api_key: str,
     llm_model_for_segmentation: str,
@@ -251,9 +204,9 @@ def process_chapters_for_segmentation(
     """
     递归遍历章节，处理叶节点以进行分段，并将 knowledge_points 就地添加到 chapter_nodes 中。
     """
-    for i, chapter_data_node in enumerate(chapter_nodes): # chapter_data_node 是对 catalog_data 中元素的引用
+    for i, chapter_data_node in enumerate(chapter_nodes):
         current_index_val = chapter_data_node.get("index")
-        current_index_str = str(current_index_val) if current_index_val is not None else str(i + 1) # 如果没有index，则使用列表索引
+        current_index_str = str(current_index_val) if current_index_val is not None else str(i + 1)
         
         current_chapter_id = f"{parent_chapter_id}{'.' if parent_chapter_id else ''}{current_index_str}"
         chapter_name = chapter_data_node.get("name", f"未知章节 {current_chapter_id}")
@@ -264,20 +217,17 @@ def process_chapters_for_segmentation(
             
             if not leaf_content:
                 print(f"未能获取叶节点 '{chapter_name}' 的内容，为该节点添加空知识点列表。", file=sys.stderr)
-                chapter_data_node["knowledge_points"] = [] # 如果没有内容，则添加空列表
+                chapter_data_node["knowledge_points"] = []
                 continue
 
-            # 准备包含所有占位符已填充的完整系统提示
             final_system_prompt = PROMPT_TEXT_SEGMENT_TEMPLATE.replace("{chapter_identifier_placeholder}", current_chapter_id)
             final_system_prompt = final_system_prompt.replace("{chapter_name_placeholder}", chapter_name)
             final_system_prompt = final_system_prompt.replace("{chapter_content_placeholder}", leaf_content)
             
-            # 将 LLM 模型名称传递给调用函数
             llm_response_str = call_llm_dashscope_text(api_key, final_system_prompt, llm_model_for_segmentation)
             segmentation_json_data = parse_json_from_llm(llm_response_str)
 
             if segmentation_json_data and "knowledge_points" in segmentation_json_data:
-                # 直接在原始节点中添加/更新 knowledge_points
                 kps = segmentation_json_data.get("knowledge_points", [])
                 if isinstance(kps, list) and all(isinstance(kp, str) for kp in kps):
                     chapter_data_node["knowledge_points"] = kps
@@ -286,58 +236,47 @@ def process_chapters_for_segmentation(
                     chapter_data_node["knowledge_points"] = []
                     print(f"警告: LLM为章节 '{chapter_name}' 返回的 'knowledge_points' 不是字符串列表。已添加空列表。", file=sys.stderr)
             else:
-                chapter_data_node["knowledge_points"] = [] # 如果此叶节点的 LLM 失败，则添加空列表
+                chapter_data_node["knowledge_points"] = []
                 print(f"未能为章节 '{chapter_name}' 生成或解析分段JSON（或缺少knowledge_points）。添加空知识点列表。", file=sys.stderr)
-                # 尝试保存 LLM 的原始输出以供调试
-                # (可以考虑添加一个调试标志来控制这个行为)
-                # error_output_path = Path(f"debug_llm_output_segment_{current_chapter_id.replace('.', '_')}.txt")
-                # try:
-                # with open(error_output_path, 'w', encoding='utf-8')as f_err:
-                # f_err.write(f"LLM Output for chapter {current_chapter_id} that failed parsing (segmentation):\n{llm_response_str}")
-                # print(f"LLM 的原始错误输出已保存到: {error_output_path}")
-                # except Exception as e_save:
-                # print(f"保存 LLM 错误输出时也发生错误: {e_save}", file=sys.stderr)
-
 
         elif "children" in chapter_data_node and isinstance(chapter_data_node["children"], list):
             process_chapters_for_segmentation(
-                chapter_data_node["children"], # 将子列表传递以进行递归修改
+                chapter_data_node["children"],
                 all_text_files,
                 api_key,
                 llm_model_for_segmentation,
                 current_chapter_id
             )
-        # 对于非叶子的 'tree' 节点，我们不直接从 LLM 添加 'knowledge_points'
-        # 根据指令 "knowledge_points will only be in the smallest unit chapter"
 
-# --- 主函数 ---
-def main_orchestrator(config: Dict, script_dir_path: Path):
+# --- 主流程函数 ---
+def run_segmentation_process(textbook_name: str, script_dir_path: Path):
     """
-    使用加载的配置来编排文本分段和知识点提取过程。
+    为指定的教材编排文本分段和知识点提取过程。
     """
-    print("开始文本分段和知识点提取过程 (并整合到目录结构)...")
-    dashscope_api_key = os.getenv('DASHSCOPE_API_KEY') # API密钥仍从环境变量获取
+    print(f"开始为教材 '{textbook_name}' 进行文本分段和知识点提取...")
+    dashscope_api_key = os.getenv('DASHSCOPE_API_KEY')
     if not dashscope_api_key:
         print("致命错误: 环境变量 DASHSCOPE_API_KEY 未设置。程序无法执行LLM调用。", file=sys.stderr)
         return
 
-    # 从配置中获取值
-    text_dir_name_from_config = config["text_dir"]
-    input_catalog_filename_from_config = config["catalog"]
-    final_output_filename_from_config = config["catalog_segments"]
-    llm_model_for_segmentation = config["llm_model"]
+    # 硬编码的配置值
+    llm_model_name = "qwen_max" # 用于分段的LLM模型
+    text_subdir_name = "text_dir" # OCR文本文件所在的子目录名
+    input_catalog_filename = "catalog.json" # 输入的目录文件名 (来自上一步)
+    output_catalog_segments_filename = "catalog_with_segments.json" # 此脚本的输出文件名
 
     # 构建路径
-    text_dir_full_path = script_dir_path / text_dir_name_from_config
-    input_catalog_json_full_path = script_dir_path / input_catalog_filename_from_config
-    final_output_json_full_path = script_dir_path / final_output_filename_from_config
+    base_textbook_processing_dir = script_dir_path / "uploads" / f"{textbook_name}_dir"
+    text_dir_full_path = base_textbook_processing_dir / text_subdir_name
+    input_catalog_json_full_path = base_textbook_processing_dir / input_catalog_filename
+    final_output_json_full_path = base_textbook_processing_dir / output_catalog_segments_filename
     
     print(f"脚本目录: {script_dir_path}")
-    print(f"文本目录 (来自配置): {text_dir_full_path}")
-    print(f"输入目录JSON (来自配置): {input_catalog_json_full_path}")
-    print(f"最终输出JSON (来自配置): {final_output_json_full_path}")
-    print(f"用于分段的LLM模型 (来自配置): {llm_model_for_segmentation}")
-
+    print(f"教材处理根目录: {base_textbook_processing_dir}")
+    print(f"文本目录 (OCR文件): {text_dir_full_path}")
+    print(f"输入目录JSON (catalog.json): {input_catalog_json_full_path}")
+    print(f"最终输出JSON (catalog_with_segments.json): {final_output_json_full_path}")
+    print(f"用于分段的LLM模型: {llm_model_name}")
 
     if not input_catalog_json_full_path.exists():
         print(f"错误: 输入的目录JSON文件 '{input_catalog_json_full_path}' 未找到。", file=sys.stderr)
@@ -347,10 +286,9 @@ def main_orchestrator(config: Dict, script_dir_path: Path):
         print(f"错误: 文本目录 '{text_dir_full_path}' 未找到。", file=sys.stderr)
         return
 
-    # 加载目录结构
     try:
         with open(input_catalog_json_full_path, 'r', encoding='utf-8') as f:
-            catalog_data = json.load(f) # 这将被就地修改
+            catalog_data = json.load(f)
         print(f"成功加载目录结构从 '{input_catalog_json_full_path}'")
     except Exception as e:
         print(f"加载目录JSON文件 '{input_catalog_json_full_path}' 时出错: {e}", file=sys.stderr)
@@ -359,47 +297,52 @@ def main_orchestrator(config: Dict, script_dir_path: Path):
     all_text_files = list_text_files(text_dir_full_path)
     if not all_text_files:
         print(f"错误: 在文本目录 '{text_dir_full_path}' 中未找到任何文本文件。", file=sys.stderr)
-        # 即使没有文本文件，也可能希望保存原始目录结构（不含知识点）
-        # 但当前逻辑依赖于文本文件来处理叶节点，所以这里返回是合理的
         save_json_data(catalog_data, final_output_json_full_path, "原始目录（无文本文件处理知识点）")
         return
 
-    # 处理章节 - 这将直接修改 catalog_data
     if "chapters" in catalog_data and isinstance(catalog_data["chapters"], list):
         process_chapters_for_segmentation(
             catalog_data["chapters"], 
             all_text_files, 
             dashscope_api_key, 
-            llm_model_for_segmentation
+            llm_model_name
         )
     else:
         print("错误: 加载的目录数据中未找到 'chapters' 键或其不是列表。", file=sys.stderr)
-        # 即使目录结构不符合预期，也尝试保存它
         save_json_data(catalog_data, final_output_json_full_path, "部分目录（'chapters'键缺失或无效）")
         return 
 
-    # 将修改后的 catalog_data 保存到最终输出文件
-    if catalog_data: # 确保 catalog_data 不是 None
+    if catalog_data:
         save_json_data(catalog_data, final_output_json_full_path, "包含知识点的完整目录")
     else:
-        # 这种情况理论上不应该发生，因为如果 catalog_data 为 None，上面就会返回
         print("警告: 未生成任何分段数据，因为 catalog_data 为空。")
 
-    print("\n文本分段和知识点提取过程完成。")
+    print(f"\n教材 '{textbook_name}' 的文本分段和知识点提取过程完成。")
 
-if __name__ == "__main__":
+def main(textbook_name_param: str):
+    """
+    主入口函数，设置环境并调用核心处理逻辑。
+    Args:
+        textbook_name_param (str): 教材的名称。
+    """
     try:
-        # 确定脚本所在的目录
         current_script_dir = Path(__file__).parent.resolve()
-    except NameError: # 处理在某些IDE或直接执行时 __file__ 未定义的情况
+    except NameError: 
         current_script_dir = Path(os.getcwd()).resolve()
     
-    # 加载配置
-    config_path = current_script_dir / DEFAULT_CONFIG_FILENAME
-    app_config = load_segmenter_config(config_path)
+    if not textbook_name_param or "/" in textbook_name_param or "\\" in textbook_name_param:
+        print("错误：提供的教材名称无效。请提供不含路径分隔符的有效名称。", file=sys.stderr)
+        return
 
-    if app_config:
-        main_orchestrator(app_config, current_script_dir)
+    run_segmentation_process(textbook_name_param, current_script_dir)
+
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        textbook_name_arg = sys.argv[1]
+        main(textbook_name_arg)
     else:
-        print("由于配置加载失败，文本分段和知识点提取流程无法启动。")
-
+        print("用法: python get_segment.py <textbook_name>") # 假设脚本名为 get_segment.py
+        print("示例: python get_segment.py my_physics_book")
+        # For testing:
+        # print("未提供教材名称参数，使用 'sample_book' 进行测试。")
+        # main("sample_book")

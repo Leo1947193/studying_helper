@@ -1,0 +1,140 @@
+[
+    {
+        "id": "chapter_content_root",
+        "name": "第二节 社会历史发展的动力",
+        "pid": null,
+        "title": "本章核心"
+    },
+    {
+        "id": "topic_1",
+        "name": "文明形态的基本内涵",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_1a",
+        "name": "文明形态的定义",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1b",
+        "name": "时间维度上的文明形态",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1c",
+        "name": "空间维度上的文明形态",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_2",
+        "name": "社会基本矛盾在历史发展中的作用",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_2a",
+        "name": "社会基本矛盾的概念",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2b",
+        "name": "生产力和生产关系的矛盾",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2c",
+        "name": "经济基础和上层建筑的矛盾",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2d",
+        "name": "社会基本矛盾的作用",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_3",
+        "name": "社会基本矛盾与社会主要矛盾",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_3a",
+        "name": "社会主要矛盾的概念",
+        "pid": "topic_3",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_3b",
+        "name": "社会主要矛盾的变化",
+        "pid": "topic_3",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_3c",
+        "name": "社会主要矛盾的转化",
+        "pid": "topic_3",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_4",
+        "name": "阶级斗争、社会革命在社会发展中的作用",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_4a",
+        "name": "阶级斗争是直接动力",
+        "pid": "topic_4",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_4b",
+        "name": "社会革命的作用",
+        "pid": "topic_4",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_4c",
+        "name": "马克思主义的阶级分析方法",
+        "pid": "topic_4",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_4d",
+        "name": "改革在社会发展中的作用",
+        "pid": "topic_4",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_5",
+        "name": "科学技术在社会发展中的作用",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_5a",
+        "name": "科技革命的推动作用",
+        "pid": "topic_5",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_5b",
+        "name": "正确把握科学技术的社会作用",
+        "pid": "topic_5",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_6",
+        "name": "文化在社会发展中的作用",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    }
+]

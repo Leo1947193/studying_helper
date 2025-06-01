@@ -1,0 +1,68 @@
+[
+    {
+        "id": "chapter_content_root",
+        "name": "第二节 事物的普遍联系和变化发展",
+        "pid": null,
+        "title": "本章核心"
+    },
+    {
+        "id": "topic_1",
+        "name": "联系和发展的普遍性",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_1a",
+        "name": "事物的普遍联系",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1b",
+        "name": "事物的变化发展",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_2",
+        "name": "对立统一规律是事物发展的根本规律",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_2a",
+        "name": "矛盾的同一性和斗争性及其在事物发展中的作用",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2b",
+        "name": "矛盾的普遍性和特殊性及其相互关系",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_3",
+        "name": "量变质变规律和否定之否定规律",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_3a",
+        "name": "量变质变规律",
+        "pid": "topic_3",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_3b",
+        "name": "否定之否定规律",
+        "pid": "topic_3",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_4",
+        "name": "联系和发展的基本环节",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    }
+]

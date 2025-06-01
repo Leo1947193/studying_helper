@@ -10,17 +10,17 @@ import dashscope # 假设已安装: pip install dashscope
 # --- 默认配置文件名 ---
 DEFAULT_CONFIG_FILENAME = "config.json" # 使用统一的配置文件名
 
-# --- LLM 提示 (PROMPT_TEXT_MERMAID_TEMPLATE 保持不变，为了简洁此处省略，实际代码中应包含它) ---
+# --- LLM 提示 ---
 PROMPT_TEXT_MERMAID_TEMPLATE = """
 你是一个专业的AI助手，擅长将文本内容总结为Mermaid格式的思维导图 (mindmap)。
-你将收到一个章节的标题和其完整的文本内容。
+你将收到一个章节的标题、其唯一路径ID、以及其完整的文本内容。
 
 你的任务是：
 1.  阅读并理解提供的章节文本内容。
 2.  为该章节内容创建一个详细的Mermaid思维导图。思维导图应该以 `mindmap` 关键字开始，并遵循Mermaid的mindmap语法，其中**层级关系通过缩进表示**。
 3.  将生成的Mermaid代码嵌入到一个JSON对象中。
 
-你必须严格按照以下JSON格式输出。JSON对象中的 `chapter`，`name`，`actual_starting_page` 和 `actual_ending_page` 字段的值会由系统提供，你只需要专注于生成准确的 `mermaid_code`。
+你必须严格按照以下JSON格式输出。JSON对象中的 `path_id`，`name`，`actual_starting_page` 和 `actual_ending_page` 字段的值会由系统提供，你只需要专注于生成准确的 `mermaid_code`。
 
 **Mermaid代码生成规则 (非常重要):**
 -   在 `mermaid_code` 字符串中，**必须使用 `\\n` 来表示换行符**。
@@ -29,7 +29,7 @@ PROMPT_TEXT_MERMAID_TEMPLATE = """
 
 JSON输出格式示例:
 {{
-  "chapter": "{chapter_identifier_placeholder}",
+  "path_id": "{path_id_placeholder}",
   "name": "{chapter_name_placeholder}",
   "actual_starting_page": "{start_file_placeholder}",
   "actual_ending_page": "{end_file_placeholder}",
@@ -40,6 +40,7 @@ JSON输出格式示例:
 - `mermaid_code` 字段中的Mermaid代码是一个有效的、表示思维导图的字符串，严格遵循上述换行和缩进规则。
 - 整个回复 **只有** 这个JSON对象，不包含任何其他文本、解释或Markdown代码块标记。
 
+章节路径ID是: "{path_id_placeholder}"
 章节标题是: "{chapter_name_placeholder}"
 章节内容如下:
 ---
@@ -68,7 +69,7 @@ def load_mermaid_config(config_file_path: Path) -> Optional[Dict]:
         # 验证 Mermaid 脚本所需的键是否存在且类型正确
         required_keys = {
             "text_dir": str,      # 作为此脚本的文本输入目录
-            "catalog": str, # 作为此脚本的目录输入文件
+            "catalog": str, # 作为此脚本的目录输入文件 (应包含 path_id)
             "mermaid_dir": str,
             "llm_model": str
         }
@@ -205,14 +206,14 @@ def get_text_content_for_leaf(leaf_node: Dict, all_text_files: List[Path]) -> Op
     end_file_name = leaf_node.get("actual_ending_page")
 
     if not start_file_name or not end_file_name or start_file_name in ["UNKNOWN", "PAGE_NOT_SPECIFIED", "INVALID_PAGE_FORMAT", "OFFSET_ERROR"] or end_file_name in ["UNKNOWN", "PAGE_NOT_SPECIFIED", "INVALID_PAGE_FORMAT", "OFFSET_ERROR"]:
-        print(f"警告: 节点 '{leaf_node.get('name')}' 缺少有效的文件名范围 ({start_file_name} - {end_file_name})。跳过。", file=sys.stderr)
+        print(f"警告: 节点 '{leaf_node.get('name')}' (ID: {leaf_node.get('path_id', '未知')}) 缺少有效的文件名范围 ({start_file_name} - {end_file_name})。跳过。", file=sys.stderr)
         return None
 
     try:
         filename_to_path = {p.name: p for p in all_text_files}
         
         if start_file_name not in filename_to_path or end_file_name not in filename_to_path:
-            print(f"警告: 节点 '{leaf_node.get('name')}' 的起始/结束文件 ({start_file_name} / {end_file_name}) 在文件列表中未找到。", file=sys.stderr)
+            print(f"警告: 节点 '{leaf_node.get('name')}' (ID: {leaf_node.get('path_id', '未知')}) 的起始/结束文件 ({start_file_name} / {end_file_name}) 在文件列表中未找到。", file=sys.stderr)
             return None
 
         sorted_filenames = [p.name for p in all_text_files]
@@ -220,11 +221,11 @@ def get_text_content_for_leaf(leaf_node: Dict, all_text_files: List[Path]) -> Op
         end_idx = sorted_filenames.index(end_file_name)
 
         if start_idx > end_idx:
-            print(f"警告: 节点 '{leaf_node.get('name')}' 的起始文件索引 ({start_idx}) 大于结束文件索引 ({end_idx})。将只使用起始文件。", file=sys.stderr)
+            print(f"警告: 节点 '{leaf_node.get('name')}' (ID: {leaf_node.get('path_id', '未知')}) 的起始文件索引 ({start_idx}) 大于结束文件索引 ({end_idx})。将只使用起始文件。", file=sys.stderr)
             end_idx = start_idx
         
         content_parts = []
-        print(f"信息: 读取文件范围 {start_file_name} 到 {end_file_name} (索引 {start_idx} 到 {end_idx})")
+        print(f"信息: 为节点 {leaf_node.get('path_id', '未知')} 读取文件范围 {start_file_name} 到 {end_file_name} (索引 {start_idx} 到 {end_idx})")
         for i in range(start_idx, end_idx + 1):
             file_path = filename_to_path[sorted_filenames[i]]
             content = read_text_file(file_path)
@@ -236,72 +237,78 @@ def get_text_content_for_leaf(leaf_node: Dict, all_text_files: List[Path]) -> Op
         return "\n\n".join(content_parts) if content_parts else None
 
     except ValueError: # .index() 方法在未找到元素时抛出 ValueError
-        print(f"错误: 文件名 '{start_file_name}' 或 '{end_file_name}' 未在排序的文件列表中找到。", file=sys.stderr)
+        print(f"错误: 文件名 '{start_file_name}' 或 '{end_file_name}' 未在排序的文件列表中找到 (节点: {leaf_node.get('path_id', '未知')})。", file=sys.stderr)
         return None
     except Exception as e:
-        print(f"获取 '{leaf_node.get('name')}' 的文本内容时出错: {e}", file=sys.stderr)
+        print(f"获取 '{leaf_node.get('name')}' (ID: {leaf_node.get('path_id', '未知')}) 的文本内容时出错: {e}", file=sys.stderr)
         return None
 
 
-def process_chapters_recursive(chapters: List[Dict], all_text_files: List[Path], mermaid_output_base_path: Path, api_key: str, llm_model_for_mermaid: str, parent_chapter_id: str = ""):
+def process_chapters_recursive(chapters: List[Dict], all_text_files: List[Path], mermaid_output_base_path: Path, api_key: str, llm_model_for_mermaid: str):
     """
     递归遍历章节，处理叶节点以生成 Mermaid 代码。
+    现在从 chapter_data 中读取 path_id。
     """
-    for i, chapter_data in enumerate(chapters):
-        current_index = str(chapter_data.get("index", i + 1))
-        current_chapter_id = f"{parent_chapter_id}{'.' if parent_chapter_id else ''}{current_index}"
-        chapter_name = chapter_data.get("name", f"未知章节 {current_chapter_id}")
+    for chapter_data in chapters:
+        # 从目录数据中获取 path_id，这是由 get_catalog.py 生成的
+        current_path_id = chapter_data.get("path_id")
+        if not current_path_id:
+            # 如果目录中没有 path_id，记录警告并尝试基于索引构建一个临时的，但这不理想
+            # 更好的做法是确保 get_catalog.py 总是生成 path_id
+            temp_index = chapter_data.get("index", "unknown_index") # 这是一个简化的回退
+            print(f"警告: 节点 '{chapter_data.get('name', '未知名称')}' 缺少 'path_id'。将使用临时ID '{temp_index}'，这可能导致问题。", file=sys.stderr)
+            current_path_id = str(temp_index) # 不再需要 parent_chapter_id 来构建
+
+        chapter_name = chapter_data.get("name", f"未知章节 {current_path_id}")
 
         if chapter_data.get("type") == "leaf":
-            print(f"\n--- 正在处理叶节点: {current_chapter_id} - {chapter_name} ---")
+            print(f"\n--- 正在处理叶节点: {current_path_id} - {chapter_name} ---")
             leaf_content = get_text_content_for_leaf(chapter_data, all_text_files)
             
             if not leaf_content:
-                print(f"未能获取叶节点 '{chapter_name}' 的内容，跳过。", file=sys.stderr)
+                print(f"未能获取叶节点 '{chapter_name}' (ID: {current_path_id}) 的内容，跳过。", file=sys.stderr)
                 continue
 
             start_file = chapter_data.get("actual_starting_page", "未知")
             end_file = chapter_data.get("actual_ending_page", "未知")
 
             # 准备包含所有占位符已填充的完整系统提示
-            final_system_prompt = PROMPT_TEXT_MERMAID_TEMPLATE.replace("{chapter_identifier_placeholder}", current_chapter_id)
+            final_system_prompt = PROMPT_TEXT_MERMAID_TEMPLATE.replace("{path_id_placeholder}", current_path_id)
             final_system_prompt = final_system_prompt.replace("{chapter_name_placeholder}", chapter_name) # 用于JSON和Mermaid根节点
             final_system_prompt = final_system_prompt.replace("{start_file_placeholder}", start_file)
             final_system_prompt = final_system_prompt.replace("{end_file_placeholder}", end_file)
             final_system_prompt = final_system_prompt.replace("{chapter_content_placeholder}", leaf_content)
             
-            # 将LLM模型名称传递给调用函数
             llm_response_str = call_llm_dashscope_text(api_key, final_system_prompt, llm_model_for_mermaid)
             mermaid_json_data = parse_json_from_llm(llm_response_str)
 
             if mermaid_json_data:
-                # 验证LLM是否包含了正确的元数据 (它应该包含，但检查一下总是好的)
-                if mermaid_json_data.get("chapter") != current_chapter_id:
-                    print(f"警告: LLM返回的chapter_id '{mermaid_json_data.get('chapter')}' 与期望的 '{current_chapter_id}' 不符。将使用期望值。")
-                    mermaid_json_data["chapter"] = current_chapter_id
-                if mermaid_json_data.get("name") != chapter_name:
-                     mermaid_json_data["name"] = chapter_name # 使用我们已知的名称
-                mermaid_json_data["actual_starting_page"] = start_file # 确保使用我们已知的值
+                # 验证LLM是否包含了正确的元数据
+                if mermaid_json_data.get("path_id") != current_path_id:
+                    print(f"警告: LLM返回的path_id '{mermaid_json_data.get('path_id')}' 与期望的 '{current_path_id}' 不符。将使用期望值。", file=sys.stderr)
+                    mermaid_json_data["path_id"] = current_path_id
+                
+                # 确保其他元数据也正确（如果需要）
+                mermaid_json_data["name"] = chapter_name 
+                mermaid_json_data["actual_starting_page"] = start_file
                 mermaid_json_data["actual_ending_page"] = end_file
 
-                # 文件名中的点替换为下划线，以避免潜在的文件系统问题
-                safe_chapter_id = current_chapter_id.replace('.', '_')
-                output_filename = mermaid_output_base_path / f"{safe_chapter_id}.json"
-                save_json_data(mermaid_json_data, output_filename, f"Mermaid数据 ({current_chapter_id})")
+                # 文件名中的点替换为下划线
+                safe_path_id_filename = current_path_id.replace('.', '_')
+                output_filename = mermaid_output_base_path / f"{safe_path_id_filename}.json"
+                save_json_data(mermaid_json_data, output_filename, f"Mermaid数据 ({current_path_id})")
             else:
-                print(f"未能为章节 '{chapter_name}' 生成或解析Mermaid JSON。", file=sys.stderr)
-                # 尝试保存LLM的原始输出以供调试
-                error_output_path = mermaid_output_base_path / f"{current_chapter_id.replace('.', '_')}.llm_error_output.txt"
+                print(f"未能为章节 '{chapter_name}' (ID: {current_path_id}) 生成或解析Mermaid JSON。", file=sys.stderr)
+                error_output_path = mermaid_output_base_path / f"{current_path_id.replace('.', '_')}.llm_error_output.txt"
                 try:
                     with open(error_output_path, 'w', encoding='utf-8')as f_err:
-                        f_err.write(f"LLM Output for chapter {current_chapter_id} that failed parsing:\n{llm_response_str}")
+                        f_err.write(f"LLM Output for chapter {current_path_id} that failed parsing (Mermaid):\n{llm_response_str}")
                     print(f"LLM 的原始错误输出已保存到: {error_output_path}")
                 except Exception as e_save:
                     print(f"保存 LLM 错误输出时也发生错误: {e_save}", file=sys.stderr)
 
-
-        elif "children" in chapter_data and isinstance(chapter_data["children"], list):
-            process_chapters_recursive(chapter_data["children"], all_text_files, mermaid_output_base_path, api_key, llm_model_for_mermaid, current_chapter_id)
+        elif "children" in chapter_data and isinstance(chapter_data["children"], list) and chapter_data["children"]:
+            process_chapters_recursive(chapter_data["children"], all_text_files, mermaid_output_base_path, api_key, llm_model_for_mermaid) # parent_chapter_id 不再需要传递，因为 path_id 直接从节点读取
 
 # --- 主函数 ---
 def main_orchestrator(config: Dict, script_dir_path: Path):
@@ -315,8 +322,8 @@ def main_orchestrator(config: Dict, script_dir_path: Path):
         return
 
     # 从配置中获取值
-    text_dir_name_from_config = config["text_dir"] # 使用 config.json 中的 texts_output_dir
-    catalog_input_filename_from_config = config["catalog"]
+    text_dir_name_from_config = config["text_dir"]
+    catalog_input_filename_from_config = config["catalog"] # 这个catalog.json现在应该包含path_id
     mermaid_output_dir_name_from_config = config["mermaid_dir"]
     llm_model_for_mermaid = config["llm_model"]
 
@@ -364,7 +371,7 @@ def main_orchestrator(config: Dict, script_dir_path: Path):
 
     print("\nMermaid代码生成过程完成。")
 
-if __name__ == "__main__":
+def main(): # Renamed from __main__ to be callable from main.py
     try:
         # 确定脚本所在的目录
         current_script_dir = Path(__file__).parent.resolve()
@@ -379,3 +386,6 @@ if __name__ == "__main__":
         main_orchestrator(app_config, current_script_dir)
     else:
         print("由于配置加载失败，Mermaid代码生成流程无法启动。")
+
+if __name__ == "__main__":
+    main()

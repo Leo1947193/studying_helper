@@ -1,0 +1,122 @@
+[
+    {
+        "id": "chapter_content_root",
+        "name": "第一节 人类社会的存在与发展",
+        "pid": null,
+        "title": "本章核心"
+    },
+    {
+        "id": "topic_1",
+        "name": "社会存在与社会意识",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_1a",
+        "name": "两种根本对立的历史观",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1b",
+        "name": "社会存在",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1c",
+        "name": "社会意识",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1d",
+        "name": "社会存在和社会意识的辩证关系",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_1e",
+        "name": "社会存在和社会意识辩证关系原理的重要意义",
+        "pid": "topic_1",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_2",
+        "name": "社会基本矛盾及其运动规律",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_2a",
+        "name": "生产力与生产关系的矛盾运动及其规律",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_2b",
+        "name": "经济基础与上层建筑的矛盾运动及其规律",
+        "pid": "topic_2",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_3",
+        "name": "人类普遍交往与世界历史的形成发展",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_3a",
+        "name": "交往及其作用",
+        "pid": "topic_3",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_3b",
+        "name": "世界历史的形成和发展",
+        "pid": "topic_3",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_4",
+        "name": "社会进步与社会形态更替",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_4a",
+        "name": "社会进步与人的发展",
+        "pid": "topic_4",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_4b",
+        "name": "社会形态的内涵",
+        "pid": "topic_4",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_4c",
+        "name": "社会形态更替的统一性和多样性",
+        "pid": "topic_4",
+        "title": "子议题"
+    },
+    {
+        "id": "subtopic_4d",
+        "name": "社会形态更替中的必然性与选择性",
+        "pid": "topic_4",
+        "title": "子议题"
+    },
+    {
+        "id": "topic_5",
+        "name": "文明及其多样性",
+        "pid": "chapter_content_root",
+        "title": "议题"
+    },
+    {
+        "id": "subtopic_5a",
+        "name": "文明及其演进",
+        "pid": "topic_5",
+        "title": "子议题"
+    }
+]
