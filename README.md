@@ -88,6 +88,11 @@ Studying Helper 是一个旨在辅助用户学习和理解教材内容的工具�
     sudo apt install poppler-utils -y
     ```
 
+9. **更改transformers版本**
+    ```bash
+    pip install "transformers>=0.21,<0.22"
+    ```
+
 9.  **设置环境变量**：
     本项目使用DashScope SDK调用大语言模型，需要设置API密钥。
     ```bash
