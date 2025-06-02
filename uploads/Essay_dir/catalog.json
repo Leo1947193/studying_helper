@@ -1,0 +1,59 @@
+{
+    "chapters": [
+        {
+            "index": 1,
+            "name": "引言",
+            "type": "leaf",
+            "starting_page": 1,
+            "ending_page": 2,
+            "actual_starting_page": "page0001.txt",
+            "children": "",
+            "generated_path_id": "1",
+            "actual_ending_page": "page0002.txt"
+        },
+        {
+            "index": 2,
+            "name": "一、神经网络的训练机制与瓶颈",
+            "type": "leaf",
+            "starting_page": 2,
+            "ending_page": 3,
+            "actual_starting_page": "page0002.txt",
+            "children": "",
+            "generated_path_id": "2",
+            "actual_ending_page": "page0003.txt"
+        },
+        {
+            "index": 3,
+            "name": "二、睡眠：人脑学习与记忆的‘秘密武器’",
+            "type": "leaf",
+            "starting_page": 3,
+            "ending_page": 5,
+            "actual_starting_page": "page0003.txt",
+            "children": "",
+            "generated_path_id": "3",
+            "actual_ending_page": "page0005.txt"
+        },
+        {
+            "index": 4,
+            "name": "三、对比与启示",
+            "type": "leaf",
+            "starting_page": 5,
+            "ending_page": 5,
+            "actual_starting_page": "page0005.txt",
+            "children": "",
+            "generated_path_id": "4",
+            "actual_ending_page": "page0005.txt"
+        },
+        {
+            "index": 5,
+            "name": "参考文献",
+            "type": "leaf",
+            "starting_page": 5,
+            "ending_page": 5,
+            "actual_starting_page": "page0005.txt",
+            "children": "",
+            "generated_path_id": "5",
+            "actual_ending_page": "page0005.txt"
+        }
+    ]
+}

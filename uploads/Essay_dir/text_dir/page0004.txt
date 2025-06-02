@@ -1,0 +1,12 @@
+1. Goodfellow, ., Bengio, Y., & Courville, A. (2016). Deep Learning. MIT Press.
+2. Kandel, E. R., Schwartz, J. H., Jessell, T. M., Siegelbaum, S. A., & Hudspeth, A. J.
+(2013). Principles of Neural Science (5th ed.). McGraw-Hill Education.
+3. Stickgold, R., & Walker, M. P. (2009). The Role of Sleep in the Consolidation of
+Human Memory. Sleep Medicine, 10, S7-S13.
+4. Tononi, G., & Cirelli, C. (2014). Sleep and the Price of Plasticity: From Synaptic
+Homeostasis to Memory Consolidation and Beyond. Physiological Reviews,
+94(1),125-177.
+5. Rasch, B. & Born, J. (2013). About the Role of Sleep in Memory. Physiological
+Reviews, 93(2), 681-766.
+6. Hassabis, D., Kumaran, D., Summerfield, C., & Botvinick, M. (2017).
+Neuroscience-Inspired Artificial Intelligence. Neuron, 95(4), 755-768.

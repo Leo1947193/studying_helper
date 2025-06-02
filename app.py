@@ -1,7 +1,8 @@
 # notebook-backend/app.py
 
 from flask import Flask, request, jsonify, send_from_directory, send_file
-from flask_cors import CORS
+# 确保这里导入了 cross_origin
+from flask_cors import CORS, cross_origin  # <--- 确保这一行正确导入
 import os
 from werkzeug.utils import secure_filename
 import json
@@ -9,6 +10,12 @@ import time
 from datetime import datetime
 from dotenv import load_dotenv
 import re
+import subprocess
+from pathlib import Path
+import threading
+import tempfile  # <--- 确保这一行正确导入
+import shutil  # <--- 确保这一行正确导入
+import sys
 
 # DeepSeek 相关的导入
 from openai import OpenAI
@@ -34,7 +41,16 @@ load_dotenv()
 
 # --- Flask 应用配置 ---
 app = Flask(__name__)
-CORS(app)
+
+# --- CRITICAL FIX: CORS Configuration ---
+# 确保这一行放置在 'app = Flask(__name__)' 之后，
+# 且在任何 '@app.route(...)' 装饰器定义之前。
+# 使用 '/*' 来确保所有路径都被 CORS 覆盖。
+CORS(app, resources={
+    r"/*": {"origins": "http://localhost:3000", "methods": ["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+            "allow_headers": ["Content-Type", "x-requested-with", "Authorization"], "supports_credentials": True}})
+
+print("DEBUG: CORS configured globally for all routes in app.py")  # 添加这个调试打印，确认它被执行
 
 # --- 文件存储配置 ---
 UPLOAD_FOLDER = 'uploads'
@@ -42,14 +58,18 @@ if not os.path.exists(UPLOAD_FOLDER):
     os.makedirs(UPLOAD_FOLDER)
     print(f"Created uploads directory at: {os.path.abspath(UPLOAD_FOLDER)}")
 
-# --- DeepSeek API 配置 ---
+# --- API Keys 配置 ---
 deepseek_api_key = "sk-945bab02da964bcdaca673485c32dfff"
 if not deepseek_api_key:
     print("WARNING: DEEPSEEK_API_KEY not found in .env file or environment variables.")
     print("AI model calls might fail. Please add DEEPSEEK_API_KEY=your_key_here to your .env file.")
 
+dashscope_api_key = "sk-31510d140d0c4af28612ce447f28943e"
+if not dashscope_api_key:
+    print("WARNING: DASHSCOPE_API_KEY not found in .env file or environment variables.")
+    print("External processing scripts (OCR, Catalog, Segmentation) might fail.")
+
 DEEPSEEK_BASE_URL = "https://api.deepseek.com/v1"
-# 直接用于RAG和普通聊天的OpenAI客户端实例（因为RAG Prompting复杂）
 openai_client_for_chat_rag = OpenAI(
     api_key=deepseek_api_key,
     base_url=DEEPSEEK_BASE_URL
@@ -100,11 +120,8 @@ def save_mock_data():
     print(f"Mock data saved to {MOCK_DATA_FILE}")
 
 
-# --- 文件内容分块函数 ---
+# --- 文件内容分块函数 (for RAG) ---
 def chunktext(text, chunk_size=800, chunk_overlap=100):
-    """
-    使用 Langchain 的 RecursiveCharacterTextSplitter 进行智能分块。
-    """
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
@@ -112,11 +129,10 @@ def chunktext(text, chunk_size=800, chunk_overlap=100):
         is_separator_regex=False
     )
     raw_chunks = text_splitter.split_text(text)
-
     return [c.strip() for c in raw_chunks if c.strip()]
 
 
-# --- 文件内容提取函数 ---
+# --- 文件内容提取函数 (for RAG and Template Extraction from full text) ---
 def extract_text_from_file(filepath, file_type):
     full_text = ""
     try:
@@ -158,139 +174,242 @@ def extract_text_from_file(filepath, file_type):
     return structured_chunks, ""
 
 
+# --- 外部脚本执行函数 ---
+def run_processing_pipeline_in_thread(textbook_base_name_unique: str, original_filename_for_subscript: str):
+    """
+    在后台线程中运行一系列 Python 脚本来处理上传的文件。
+    Args:
+        textbook_base_name_unique (str): 唯一的教材基础名 (例如 "Essay", "Essay_1")。
+        original_filename_for_subscript (str): 原始上传的文件名 (例如 "Essay.pdf")。
+    """
+    print(
+        f"\n--- Thread starting background processing pipeline for '{textbook_base_name_unique}' (Original: '{original_filename_for_subscript}') ---")
+    current_script_dir = Path(__file__).parent.resolve()
+
+    scripts_to_run = [
+        ("images_and_ocr.py", textbook_base_name_unique, original_filename_for_subscript),
+        ("get_catalog.py", textbook_base_name_unique, original_filename_for_subscript),
+        ("get_segment.py", textbook_base_name_unique, original_filename_for_subscript),
+    ]
+
+    env = os.environ.copy()
+    if dashscope_api_key:
+        env['DASHSCOPE_API_KEY'] = dashscope_api_key
+    else:
+        print("WARNING: DASHSCOPE_API_KEY not set in environment for sub-processes. Skipping scripts that require it.")
+        return
+
+    python_executable = sys.executable
+
+    for script_name, *args_for_script in scripts_to_run:
+        script_path = current_script_dir / script_name
+        if not script_path.exists():
+            print(f"WARNING: Script '{script_name}' not found at {script_path}, skipping.")
+            continue
+
+        command_args_str = [str(arg) for arg in args_for_script]
+        command = [python_executable, str(script_path)] + command_args_str
+
+        print(f"Executing background command: {' '.join(command)}")
+
+        try:
+            process = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                encoding='gbk',
+                env=env,
+                cwd=current_script_dir,
+                errors='replace'
+            )
+
+            stdout_content = process.stdout
+            stderr_content = process.stderr
+
+            if process.returncode == 0:
+                print(f"Script '{script_name}' for '{textbook_base_name_unique}' completed successfully.")
+                if stdout_content.strip():
+                    print(f"  Stdout:\n{stdout_content}")
+                else:
+                    print("  Stdout: (empty)")
+                if stderr_content.strip():
+                    print(f"  Stderr:\n{stderr_content}")
+                else:
+                    print("  Stderr: (empty)")
+            else:
+                print(
+                    f"ERROR: Script '{script_name}' for '{textbook_base_name_unique}' failed with exit code {process.returncode}.")
+                print(f"  Stdout:\n{stdout_content}")
+                print(f"  Stderr:\n{stderr_content}")
+
+        except Exception as e:
+            print(f"ERROR: Exception while running script '{script_name}' for '{textbook_base_name_unique}': {e}")
+
+    print(f"--- Background processing pipeline for '{textbook_base_name_unique}' finished. ---")
+
+
 # --- API 路由 ---
 
 # 1. 提供静态文件 (上传的文件)
-@app.route('/uploads/<path:filename>')
-def uploaded_file_endpoint(filename):
+@app.route('/uploads/<path:filename_with_path>')  # <--- 参数名修改，表示包含路径
+@cross_origin()  # <--- 确保存在
+def uploaded_file_endpoint(filename_with_path):
     print(f"\n--- DEBUG: Serving file request ---")
-    print(f"Requested filename (from URL): {filename}")
-    print(f"Attempting to serve from directory: {os.path.abspath(UPLOAD_FOLDER)}")
+    print(f"Requested filename (from URL): {filename_with_path}")  # filename_with_path is like "Essay_dir/Essay.pdf"
 
-    try:
-        response = send_from_directory(UPLOAD_FOLDER, filename)
-        print(f"Successfully served file: {os.path.join(UPLOAD_FOLDER, filename)}")
-        return response
-    except Exception as e:
-        print(f"ERROR: Failed to serve file '{filename}'. Details: {e}")
-        if not os.path.exists(os.path.join(UPLOAD_FOLDER, filename)):
-            print(f"  Reason: File does NOT exist at {os.path.join(os.path.abspath(UPLOAD_FOLDER), filename)}")
-            return jsonify({'error': 'File not found on server.', 'detail': f'File {filename} does not exist.'}), 404
-        else:
-            print(f"  Reason: Other error during serving (e.g., permissions).")
-            return jsonify({'error': 'Error accessing file.', 'detail': str(e)}), 500
+    # 路径解析：将 "Essay_dir/Essay.pdf" 分解为 ("Essay_dir", "Essay.pdf")
+    # 或 "Essay_dir/images_dir/page_0001.jpg" 分解为 ("Essay_dir", "images_dir/page_0001.jpg")
+    path_parts = Path(filename_with_path).parts
+
+    if len(path_parts) >= 2 and path_parts[0].endswith('_dir'):
+        # 这是在处理目录下的文件
+        base_dir_name = path_parts[0]  # 例如 "Essay_dir"
+        relative_path_inside_dir = Path(*path_parts[1:])  # 例如 "Essay.pdf" 或 "images_dir/page_0001.jpg"
+
+        full_path_to_serve = Path(UPLOAD_FOLDER) / base_dir_name / relative_path_inside_dir
+
+        if full_path_to_serve.exists() and full_path_to_serve.is_file():
+            print(f"Attempting to serve from processed directory: {full_path_to_serve}")
+            return send_from_directory(Path(UPLOAD_FOLDER) / base_dir_name, str(relative_path_inside_dir))
+
+    # 兼容处理 uploads 根目录下的文件 (如果用户直接请求 uploads/file.pdf)
+    # 虽然新逻辑会把PDF放进_dir，但为了健壮性，这里保留
+    full_path_root = Path(UPLOAD_FOLDER) / filename_with_path
+    if full_path_root.exists() and full_path_root.is_file():
+        print(f"Attempting to serve from root uploads: {full_path_root}")
+        return send_from_directory(UPLOAD_FOLDER, filename_with_path)
+
+    print(f"ERROR: File '{filename_with_path}' not found on server in expected locations.")
+    return jsonify({'error': 'File not found on server.', 'detail': f'File {filename_with_path} does not exist.'}), 404
 
 
-# 2. 获取文件列表
+# 2. 获取文件列表 (显示原始PDF和其处理状态)
 @app.route('/api/files', methods=['GET'])
+@cross_origin()  # <--- 确保存在
 def get_files():
-    current_files_on_disk_names = os.listdir(UPLOAD_FOLDER)
-    updated_mock_files_metadata = []
+    files_on_disk = []
+    # 遍历 uploads 根目录，查找所有 *_dir 结尾的文件夹
+    for item_name in os.listdir(UPLOAD_FOLDER):
+        item_path = Path(UPLOAD_FOLDER) / item_name
+        if item_path.is_dir() and item_name.endswith('_dir'):
+            # 这是一个处理过的教材目录
+            # 我们需要找到这个目录下的原始PDF文件
+            original_pdf_found = None
+            # 查找目录下第一个.pdf文件作为原始PDF
+            for f in item_path.iterdir():
+                if f.is_file() and f.suffix.lower() == '.pdf':
+                    original_pdf_found = f
+                    break
 
-    for filename_on_disk in current_files_on_disk_names:
-        filepath = os.path.join(UPLOAD_FOLDER, filename_on_disk)
-        if os.path.isfile(filepath):
-            file_meta = next((f for f in mock_files_metadata if f['name'] == filename_on_disk), None)
-            if not file_meta:
-                _, ext = os.path.splitext(filename_on_disk)
-                file_type = ext.replace('.', '') if ext else 'unknown'
+            if original_pdf_found:
+                is_processed_flag = (item_path / "catalog_with_segments.json").exists()
 
-                file_meta = {
-                    'id': f'f{int(time.time() * 1000)}',
-                    'name': filename_on_disk,
-                    'size': f"{round(os.path.getsize(filepath) / (1024 * 1024), 2)}MB",
-                    'type': file_type,
-                    'uploadDate': datetime.fromtimestamp(os.path.getmtime(filepath)).strftime('%Y-%m-%d %H:%M'),
-                    'file_type_tag': 'unknown'  # 默认值，如果前端没传
-                }
-            updated_mock_files_metadata.append(file_meta)
+                files_on_disk.append({
+                    'id': item_name,  # <--- 关键：使用目录名作为文件的唯一ID (如 "Essay_dir", "Essay_1_dir")
+                    'name': original_pdf_found.name,  # 显示原始文件名 (如 "Essay.pdf")
+                    'size': f"{round(original_pdf_found.stat().st_size / (1024 * 1024), 2)}MB",
+                    'type': original_pdf_found.suffix.lower().replace('.', ''),  # 从文件扩展名获取类型
+                    'uploadDate': datetime.fromtimestamp(original_pdf_found.stat().st_mtime).strftime('%Y-%m-%d %H:%M'),
+                    'file_type_tag': 'textbook',  # 假定上传的都是textbook类型
+                    'is_processed': is_processed_flag,
+                    'processed_dir_name': item_name  # 存储文件夹名，用于预览/RAG查找
+                })
 
-    mock_files_metadata[:] = [f for f in updated_mock_files_metadata if
-                              os.path.exists(os.path.join(UPLOAD_FOLDER, f['name']))]
+    # 将现有mock_files_metadata与files_on_disk合并/同步
+    synced_files_metadata = []
+    seen_ids = set()
+    for file_on_disk in files_on_disk:
+        synced_files_metadata.append(file_on_disk)
+        seen_ids.add(file_on_disk['id'])
+
+    # 保留 mock_files_metadata 中非 PDF 文件（如其他类型文件），如果它们存在
+    for mock_file in mock_files_metadata:
+        if mock_file.get('id') not in seen_ids:  # 检查是否已经通过扫描目录添加
+            synced_files_metadata.append(mock_file)
+
+    mock_files_metadata[:] = synced_files_metadata
     save_mock_data()
     return jsonify(mock_files_metadata)
 
 
-# 3. 上传文件 (新增接收 file_type_tag)
+# 3. 上传文件
 @app.route('/api/upload', methods=['POST'])
+@cross_origin()  # <--- 确保存在
 def upload_file():
-    print("Received upload request. Files in request.files:")
-    for key, value in request.files.items():
-        print(f"  Key: {key}, Filename: {value.filename}, Content-Type: {value.content_type}")
-
     if 'file' not in request.files:
-        print("Error: 'file' part not found in request.files.")
         return jsonify({'error': 'No file part in the request. Make sure your form field name is "file".'}), 400
 
     file = request.files['file']
     file_type_tag = request.form.get('file_type_tag', 'unknown')
-    print(f"Received file_type_tag: {file_type_tag}")
 
     if file.filename == '':
-        print("Error: Empty filename.")
         return jsonify({'error': 'No selected file or empty filename.'}), 400
 
-    original_filename = file.filename
-    print(f"Original filename from frontend: {original_filename}")
+    original_filename = file.filename  # 原始文件名，如 "Essay.pdf"
+    name_without_ext, ext = os.path.splitext(original_filename)  # "Essay", ".pdf"
 
-    name_without_ext, ext = os.path.splitext(original_filename)
+    # 生成唯一的教材基础名 (例如 "Essay", "Essay_1")
+    textbook_base_name_unique = secure_filename(name_without_ext)
+    if not textbook_base_name_unique:
+        textbook_base_name_unique = f"uploaded_book_{int(time.time() * 1000)}"
 
-    cleaned_name_base = re.sub(r'[^\w\u4e00-\u9fa5.\s-]', '', name_without_ext)
-    cleaned_name_base = re.sub(r'\s+', '_', cleaned_name_base).strip('_')
+    # 生成唯一的处理目录名 (例如 "Essay_dir", "Essay_1_dir")
+    textbook_dir_full_name = f"{textbook_base_name_unique}_dir"
+    counter = 1
+    # 循环确保目录名绝对唯一
+    while Path(UPLOAD_FOLDER).joinpath(textbook_dir_full_name).exists():
+        textbook_dir_full_name = f"{textbook_base_name_unique}_{counter}_dir"
+        counter += 1
 
-    if not cleaned_name_base:
-        final_base_name = f"uploaded_file_{int(time.time() * 1000)}"
-        print(f"Warning: Cleaned base name was empty, using fallback: {final_base_name}")
-    else:
-        final_base_name = cleaned_name_base
-        print(f"Cleaned base name: {final_base_name}")
+    textbook_processing_dir = Path(UPLOAD_FOLDER) / textbook_dir_full_name
+    textbook_processing_dir.mkdir(parents=True, exist_ok=True)  # 确保创建了唯一的目录
 
-    final_filename = final_base_name + ext
-    print(f"Final filename for saving: {final_filename}")
-
-    filepath = os.path.join(UPLOAD_FOLDER, final_filename)
-
-    count = 1
-    original_filepath = filepath
-    while os.path.exists(filepath):
-        name_only, ext_only = os.path.splitext(final_filename)
-        final_filename = f"{name_only}_{count}{ext_only}"
-        filepath = os.path.join(UPLOAD_FOLDER, final_filename)
-        count += 1
-    if original_filepath != filepath:
-        print(f"File already exists, new unique filename: {final_filename}")
+    # 将原始PDF保存到这个唯一的目录下，使用其原始文件名
+    target_pdf_path_in_unique_dir = textbook_processing_dir / original_filename
 
     try:
-        file.save(filepath)
-        print(f"File successfully saved to: {filepath}")
+        file.save(str(target_pdf_path_in_unique_dir))
+        print(f"Original PDF saved to: {target_pdf_path_in_unique_dir}")
 
         file_type = ext.replace('.', '') if ext else 'unknown'
-
         new_file_meta = {
-            'id': f'f{int(time.time() * 1000)}',
-            'name': final_filename,
-            'size': f"{round(os.path.getsize(filepath) / (1024 * 1024), 2)}MB",
+            'id': textbook_dir_full_name,  # <--- 关键：使用唯一的目录名作为文件ID
+            'name': original_filename,  # <--- 显示原始文件名
+            'size': f"{round(target_pdf_path_in_unique_dir.stat().st_size / (1024 * 1024), 2)}MB",
             'type': file_type,
             'uploadDate': datetime.now().strftime('%Y-%m-%d %H:%M'),
-            'file_type_tag': file_type_tag
+            'file_type_tag': file_type_tag,
+            'is_processed': False,  # 初始标记为未处理
+            'processed_dir_name': textbook_dir_full_name,  # 记录将来会处理到的目录名
+            # 'textbook_base_name_for_scripts': textbook_base_name_unique # 这个不再直接存储，但会传递给脚本
         }
+
+        # 将新文件元数据添加到全局列表 (新的ID是唯一的，所以直接append即可)
         mock_files_metadata.append(new_file_meta)
         save_mock_data()
 
+        print(
+            f"Launching background processing for '{textbook_base_name_unique}' (folder: '{textbook_dir_full_name}', original_filename: '{original_filename}')...")
+        # <--- 关键：传递唯一的教材基础名和原始文件名给后台线程
+        thread = threading.Thread(target=run_processing_pipeline_in_thread,
+                                  args=(textbook_base_name_unique, original_filename))
+        thread.start()
+
         return jsonify({
-            'message': 'File uploaded successfully',
-            'fileName': final_filename,
-            'filePath': filepath,
-            'fileId': new_file_meta['id'],
-            'fileTypeTag': file_type_tag
+            'message': 'File uploaded successfully. Processing started in background.',
+            'fileName': original_filename,
+            'fileId': new_file_meta['id'],  # 返回唯一的ID
+            'fileTypeTag': file_type_tag,
+            'is_processed': False
         }), 200
     except Exception as e:
-        print(f"Error saving file: {e}")
-        return jsonify({'error': f'Failed to save file: {str(e)}'}), 500
+        print(f"Error saving file or starting processing: {e}")
+        return jsonify({'error': f'Failed to upload file or start processing: {str(e)}'}), 500
 
 
-# 4. 获取对话历史列表 (更新以返回 related_file_ids 和 meta)
+# 4. 获取对话历史列表
 @app.route('/api/chat-history', methods=['GET'])
+@cross_origin()  # <--- 确保存在
 def get_chat_history():
     history_with_files = []
     for chat_entry in mock_chat_history:
@@ -304,8 +423,9 @@ def get_chat_history():
     return jsonify(history_with_files)
 
 
-# 5. 获取某个对话的消息 (更新以加载相关文件信息)
+# 5. 获取某个对话的消息
 @app.route('/api/chat/<chat_id>/messages', methods=['GET'])
+@cross_origin()  # <--- 确保存在
 def get_chat_messages(chat_id):
     messages = mock_chat_messages.get(chat_id, [])
 
@@ -320,8 +440,9 @@ def get_chat_messages(chat_id):
     return jsonify({"messages": messages, "related_files_meta": related_files_meta})
 
 
-# 6. 发送新消息到大模型 (RAG逻辑)
+# 6. 发送新消息到大模型
 @app.route('/api/chat', methods=['POST'])
+@cross_origin()  # <--- 确保存在
 def send_chat_message():
     data = request.get_json()
     user_message_content = data.get('message')
@@ -370,39 +491,84 @@ def send_chat_message():
         context_str = ""
         citations_for_response = []
 
-        # --- 1. 文件内容提取和分块 ---
-        all_selected_file_chunks = []
+        all_knowledge_points = []
         if related_file_ids:
-            print(f"DEBUG RAG: Retrieving content from selected files for RAG: {related_file_ids}")
+            print(f"DEBUG RAG: Retrieving knowledge points from selected files for RAG: {related_file_ids}")
             for file_id in related_file_ids:
                 file_meta = next((f for f in mock_files_metadata if f['id'] == file_id), None)
-                if file_meta:
-                    file_path = os.path.join(UPLOAD_FOLDER, file_meta['name'])
-                    file_type = file_meta['type']
+                # 只有当文件被标记为“已处理”且有 processed_dir_name 时才使用知识点
+                if file_meta and file_meta.get('is_processed') and file_meta.get('processed_dir_name'):
+                    processed_dir_path = Path(UPLOAD_FOLDER) / file_meta['processed_dir_name']
+                    catalog_with_segments_path = processed_dir_path / "catalog_with_segments.json"
 
-                    if os.path.exists(file_path):
-                        chunks_from_file, extract_error = extract_text_from_file(file_path, file_type)
-                        if chunks_from_file:
-                            for chunk in chunks_from_file:
-                                chunk['doc_id'] = file_id
-                                chunk['doc_name'] = file_meta['name']
-                                all_selected_file_chunks.append(chunk)
-                        else:
+                    if catalog_with_segments_path.exists():
+                        try:
+                            with open(catalog_with_segments_path, 'r', encoding='utf-8') as f:
+                                catalog_data = json.load(f)
+
+                            def collect_knowledge_points_recursive(nodes, current_chapter_path=None):
+                                kps = []
+                                for node in nodes:
+                                    node_path = node.get('generated_path_id', 'unknown_id')
+                                    current_full_chapter_path = f"{current_chapter_path}.{node_path}" if current_chapter_path else node_path
+
+                                    if node.get('knowledge_points') and isinstance(node['knowledge_points'], list):
+                                        for kps_idx, kp_text in enumerate(node['knowledge_points']):
+                                            kps.append({
+                                                "id": f"{current_full_chapter_path}_{kps_idx}",
+                                                "text": kp_text,
+                                                "doc_name": file_meta['name'],
+                                                "chapter_name": node.get('name', '未知章节')
+                                            })
+                                    if node.get('children') and isinstance(node['children'], list):
+                                        kps.extend(collect_knowledge_points_recursive(node['children'],
+                                                                                      current_full_chapter_path))
+                                return kps
+
+                            if catalog_data.get('chapters') and isinstance(catalog_data['chapters'], list):
+                                current_file_kps = collect_knowledge_points_recursive(catalog_data['chapters'])
+                                all_knowledge_points.extend(current_file_kps)
+                                print(
+                                    f"DEBUG RAG: Loaded {len(current_file_kps)} knowledge points from {file_meta['name']}.")
+
+                        except Exception as e:
                             print(
-                                f"WARNING RAG: Failed to extract chunks from file {file_meta['name']}: {extract_error}")
+                                f"ERROR RAG: Failed to load or parse catalog_with_segments.json for {file_meta['name']}: {e}")
                     else:
-                        print(f"WARNING RAG: File {file_meta['name']} not found on disk for RAG.")
+                        print(
+                            f"WARNING RAG: catalog_with_segments.json not found for {file_meta['name']} at {catalog_with_segments_path}. Skipping.")
                 else:
-                    print(f"WARNING RAG: File metadata for ID {file_id} not found for RAG.")
+                    # 如果文件未处理，则使用原始文本分块（回退到旧RAG）
+                    print(
+                        f"WARNING RAG: File '{file_meta.get('name', file_id)}' is not processed. Falling back to raw text chunking for RAG.")
+                    # 对于未处理的文件，它的processed_dir_name可能就是它的ID，也可能是None
+                    # 路径应该是 uploads/processed_dir_name/original_filename 或者 uploads/original_filename
+                    file_path_for_raw = Path(UPLOAD_FOLDER) / (file_meta.get('processed_dir_name') or "") / file_meta[
+                        'name']
+                    # 如果processed_dir_name为空，则 file_path_for_raw 会变成 uploads/original_filename
+                    if not file_path_for_raw.exists():  # 再次检查一下根目录下的可能性
+                        file_path_for_raw = Path(UPLOAD_FOLDER) / file_meta['name']
 
-        print(f"DEBUG RAG: Total chunks extracted from selected files: {len(all_selected_file_chunks)}")
-        for i, chunk in enumerate(all_selected_file_chunks[:min(3, len(all_selected_file_chunks))]):
+                    chunks_from_raw, extract_error = extract_text_from_file(file_path_for_raw, file_meta['type'])
+                    if chunks_from_raw:
+                        for chunk in chunks_from_raw:
+                            all_knowledge_points.append({
+                                "id": f"{file_id}_{chunk['id']}",
+                                "text": chunk['text'],
+                                "doc_name": file_meta['name'],
+                                "chapter_name": "（未处理）"
+                            })
+                    else:
+                        print(
+                            f"WARNING RAG: Failed to extract raw text chunks from {file_meta['name']}: {extract_error}. No context for this file.")
+
+        print(f"DEBUG RAG: Total knowledge points collected for RAG: {len(all_knowledge_points)}")
+        for i, kp in enumerate(all_knowledge_points[:min(3, len(all_knowledge_points))]):
             print(
-                f"DEBUG RAG: Sample Extracted Chunk {i + 1} (from {chunk.get('doc_name', 'N/A')}, id: {chunk.get('id', 'N/A')}): {chunk['text'][:150]}...")
+                f"DEBUG RAG: Sample KP {i + 1} (from {kp.get('doc_name', 'N/A')}, chapter: {kp.get('chapter_name', 'N/A')}): {kp['text'][:150]}...")
 
-        # --- 2. 检索最相关的文本块 (使用 jieba 进行中文分词和匹配) ---
         relevant_chunks_for_llm = []
-        if all_selected_file_chunks:
+        if all_knowledge_points:
             query_segmented_words = jieba.lcut(user_message_content.lower())
 
             stop_words = {"的", "了", "是", "在", "我", "你", "他", "她", "它", "分析", "文件", "请", "如何", "什么",
@@ -414,52 +580,51 @@ def send_chat_message():
             print(f"DEBUG RAG: Processed Query Words (jieba): {query_words}")
 
             scored_chunks = []
-            for chunk in all_selected_file_chunks:
-                if not chunk.get('text'):
+            for kp in all_knowledge_points:
+                if not kp.get('text'):
                     continue
 
-                chunk_segmented_words = set(jieba.lcut(chunk['text'].lower()))
+                kp_segmented_words = set(jieba.lcut(kp['text'].lower()))
 
-                score = sum(1 for word in query_words if word in chunk_segmented_words)
+                score = sum(1 for word in query_words if word in kp_segmented_words)
 
                 if score > 0:
-                    scored_chunks.append((score, chunk))
+                    scored_chunks.append((score, kp))
 
             print(
-                f"DEBUG RAG: Scored Chunks (before sort/limit, jieba): {[(s, c['doc_name'], c['id']) for s, c in scored_chunks[:min(5, len(scored_chunks))]]}...")
+                f"DEBUG RAG: Scored KPs (before sort/limit, jieba): {[(s, kp['doc_name'], kp['chapter_name']) for s, kp in scored_chunks[:min(5, len(scored_chunks))]]}...")
 
             scored_chunks.sort(key=lambda x: x[0], reverse=True)
 
             MAX_CONTEXT_CHUNKS = 8
             citation_id_counter = 1
-            seen_chunk_identifiers = set()
+            seen_kp_identifiers = set()
 
-            for score, chunk in scored_chunks:
+            for score, kp in scored_chunks:
                 if citation_id_counter > MAX_CONTEXT_CHUNKS:
                     break
 
-                chunk_identifier = f"{chunk['doc_id']}_{chunk['id']}"
-                if chunk_identifier in seen_chunk_identifiers:
+                kp_identifier = f"{kp['doc_name']}_{kp['chapter_name']}_{kp['text']}"
+                if kp_identifier in seen_kp_identifiers:
                     continue
 
                 relevant_chunks_for_llm.append({
                     "id": f"[{citation_id_counter}]",
-                    "text": chunk['text'],
-                    "original_doc_name": chunk['doc_name']
+                    "text": kp['text'],
+                    "original_doc_name": kp['doc_name']
                 })
 
                 citations_for_response.append({
                     "id": str(citation_id_counter),
-                    "doc_name": chunk['doc_name'],
-                    "text": chunk['text']
+                    "doc_name": kp['doc_name'],
+                    "text": kp['text']
                 })
-                seen_chunk_identifiers.add(chunk_identifier)
+                seen_kp_identifiers.add(kp_identifier)
                 citation_id_counter += 1
 
             print(
-                f"DEBUG RAG: Final Relevant Chunks for LLM (jieba): {[(c['original_doc_name'], c['id']) for c in relevant_chunks_for_llm]}")
+                f"DEBUG RAG: Final Relevant KPs for LLM (jieba): {[(c['original_doc_name'], c['text'][:50]) for c in relevant_chunks_for_llm]}")
 
-        # --- 3. 构建发送给大模型的 Prompt ---
         system_instruction_prefix = "你是一个严谨、专业的AI助手，擅长分析文档并提供清晰、准确、且带有引用的回答。你必须严格依据提供的参考资料进行回答，不允许虚构或依赖你的预训练知识回答参考资料中没有的信息。"
 
         user_prompt_content = f"用户问题：{user_message_content}"
@@ -467,7 +632,7 @@ def send_chat_message():
         if related_file_ids and relevant_chunks_for_llm:
             context_str += "以下是一些用户选择的参考资料。请注意，你的回答必须完全基于这些资料，如果答案不在其中，请明确说明。\n\n"
             for chunk_info in relevant_chunks_for_llm:
-                context_str += f"### 参考资料：文档 '{chunk_info['original_doc_name']}'，片段 {chunk_info['id']}\n"
+                context_str += f"### 参考资料：文档 '{chunk_info['original_doc_name']}'，片段 {chunk_info['id']}：来自章节 '{chunk_info.get('chapter_name', '未知章节')}'\n"
                 context_str += "```text\n"
                 context_str += chunk_info['text'] + "\n"
                 context_str += "```\n\n"
@@ -554,6 +719,7 @@ def send_chat_message():
 
 # 7. 导出对话为 DOCX 文件
 @app.route('/api/export-chat/<chat_id>', methods=['GET'])
+@cross_origin()  # <--- 确保存在
 def export_chat(chat_id):
     messages = mock_chat_messages.get(chat_id, [])
 
@@ -601,12 +767,14 @@ def export_chat(chat_id):
 
 # --- 新功能：答题方法和模板提取相关路由 ---
 @app.route('/api/templates/list', methods=['GET'])
+@cross_origin()  # <--- 确保存在
 def list_templates():
     templates_methods = template_manager.get_all_templates_methods()
     return jsonify(templates_methods)
 
 
 @app.route('/api/templates/extract-from-file', methods=['POST'])
+@cross_origin()  # <--- 确保存在
 def extract_templates_from_file():
     data = request.get_json()
     file_id = data.get('fileId')
@@ -618,26 +786,28 @@ def extract_templates_from_file():
     if not file_meta:
         return jsonify({"error": "File not found in metadata."}), 404
 
-    file_path = os.path.join(UPLOAD_FOLDER, file_meta['name'])
-    if not os.path.exists(file_path):
-        return jsonify({"error": f"File '{file_meta['name']}' not found on disk."}), 404
+    # 构建文件路径，现在file_id就是processed_dir_name
+    file_path = Path(UPLOAD_FOLDER) / file_meta['id'] / file_meta['name']
+
+    if not file_path.exists():
+        return jsonify(
+            {"error": f"File '{file_meta['name']}' not found on disk at processed location: {file_path}"}), 404
 
     full_text_chunks, error_msg = extract_text_from_file(file_path, file_meta['type'])
     if error_msg or not full_text_chunks:
         print(f"DEBUG APP: Failed to extract text chunks from file: {error_msg}")
-        return jsonify({"error": f"Failed to extract text from file: {error_msg}"}), 500
+        return jsonify({"error": f"Failed to extract text from file: {str(e)}"}), 500
 
     full_text_content = "\n\n".join([c['text'] for c in full_text_chunks])
     file_type_display = file_meta.get('file_type_tag', '未知类型')
 
-    # 1. 使用LLM从整个文档文本中提取Q&A对
     qa_pairs_from_llm = []
     try:
         qa_pairs_from_llm = llm_client_for_tasks.extract_qa_pairs_from_document(
             full_text_content, document_type_tag=file_type_display
         )
         print(
-            f"DEBUG APP: LLM extracted Q&A pairs (count: {len(qa_pairs_from_llm)}): {qa_pairs_from_llm[:min(3, len(qa_pairs_from_llm))]}...")  # 打印前3个样本
+            f"DEBUG APP: LLM extracted Q&A pairs (count: {len(qa_pairs_from_llm)}): {qa_pairs_from_llm[:min(3, len(qa_pairs_from_llm))]}...")
 
         if not isinstance(qa_pairs_from_llm, list):
             print(f"DEBUG APP: LLM extract_qa_pairs_from_document returned non-list: {qa_pairs_from_llm}")
@@ -652,7 +822,6 @@ def extract_templates_from_file():
         return jsonify({"message": "Successfully analyzed file, but no valid Q&A pairs were identified.",
                         "extracted_data": []}), 200
 
-    # 2. 遍历提取出的Q&A对，并为每个对提取和保存模板/方法
     added_count = 0
     extracted_templates_methods = []
 
@@ -698,6 +867,7 @@ def extract_templates_from_file():
 
 
 @app.route('/api/templates/rewrite-answer', methods=['POST'])
+@cross_origin()  # <--- 确保存在
 def rewrite_answer_api():
     data = request.get_json()
     question = data.get('question')
@@ -722,11 +892,16 @@ def rewrite_answer_api():
 # --- 服务器启动 ---
 if __name__ == '__main__':
     load_mock_data()
+    print("\n--- Flask URL Map ---")
+    for rule in app.url_map.iter_rules():
+        print(f"Endpoint: {rule.endpoint}, Methods: {rule.methods}, Rule: {rule.rule}")
+    print("---------------------\n")
+
     print(f"\n--- Starting Flask backend server ---")
     print(f"DeepSeek API Key loaded: {'Yes' if deepseek_api_key else 'No'}")
+    print(f"DashScope API Key loaded: {'Yes' if dashscope_api_key else 'No'}")
     print(f"DeepSeek Base URL: {DEEPSEEK_BASE_URL}")
     print(f"Uploads directory: {os.path.abspath(UPLOAD_FOLDER)}")
     print(f"Mock data file: {os.path.abspath(MOCK_DATA_FILE)}")
     print(f"Templates/Methods file: {os.path.abspath(TEMPLATES_FILE)}\n")
     app.run(debug=True, port=5000)
-
