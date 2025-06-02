@@ -11,7 +11,7 @@ function ChatInputArea({ chatInput, setChatInput, handleSendMessage, sendingMess
       <TextArea
         value={chatInput}
         onChange={(e) => setChatInput(e.target.value)}
-        placeholder="输入您的问题..."
+        placeholder="Ask EduMind..."
         autoSize={{ minRows: 2, maxRows: 6 }}
         onPressEnter={(e) => {
           if (e.shiftKey) {

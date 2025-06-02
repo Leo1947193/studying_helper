@@ -1,8 +1,8 @@
 // src/components/Layout/RightPanel.js
 import React from 'react';
 import { Divider, Empty, Typography } from 'antd';
-import GeneralTools from './GeneralTools';
-import ChatSettingsForm from './ChatSettingsForm';
+import GeneralTools from '../Layout/GeneralTools';
+import ChatSettingsForm from '../Chat/ChatSettingsForm';
 
 const { Title } = Typography;
 
