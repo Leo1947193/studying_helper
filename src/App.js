@@ -29,6 +29,7 @@ import AppHeader from './components/Layout/AppHeader'; // 引入自定义的AppH
 import IntelligentAssistantPage from './pages/IntelligentAssistantPage';
 import DashboardPage from './pages/DashboardPage';
 import ProjectsPage from './pages/ProjectsPage';
+import ProjectIntroPage from './pages/ProjectIntroPage'; 
 
 const { Content } = Layout;
 
@@ -115,6 +116,9 @@ function AppContent() {
       case 'projects':
         navigate('/projects');
         break;
+      case 'projectIntro': // 新增：添加一个路由键
+        navigate('/project-intro'); // 跳转到项目介绍页
+        break;
       default:
         navigate('/'); // 默认跳转到智能助手页面
         break;
@@ -130,10 +134,10 @@ function AppContent() {
     <Layout style={{ minHeight: '100vh' }}>
       <AppHeader
         onGlobalSearch={handleGlobalSearch}
-        onMenuItemClick={handleMenuItemClick} // 传入导航点击事件处理器
+        onMenuItemClick={handleMenuItemClick}
       />
 
-      <Content style={{ flex: 1 }}> {/* Content作为路由内容的容器 */}
+      <Content style={{ flex: 1 }}>
         <Routes>
           {/* 默认路由或主页 */}
           <Route path="/" element={<IntelligentAssistantPage
@@ -159,6 +163,8 @@ function AppContent() {
           <Route path="/dashboard" element={<DashboardPage />} />
           {/* 项目页面路由 */}
           <Route path="/projects" element={<ProjectsPage />} />
+          {/* 新增：项目介绍页路由，例如 /project-intro 或 /about */}
+          <Route path="/project-intro" element={<ProjectIntroPage />} /> {/* 或者 <Route path="/about" element={<ProjectIntroPage />} /> */}
           {/* TODO: 其他页面路由 */}
         </Routes>
       </Content>

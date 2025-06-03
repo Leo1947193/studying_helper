@@ -95,6 +95,10 @@ function AppHeader({ onGlobalSearch, onMenuItemClick }) {
       key: 'dashboard',
       label: '仪表盘',
     },
+    {
+      key: 'projectIntro', // 新增：项目介绍菜单项，如果希望在菜单中显示
+      label: '项目介绍',
+    },
   ];
 
   return (
@@ -108,13 +112,16 @@ function AppHeader({ onGlobalSearch, onMenuItemClick }) {
       zIndex: 1,
     }}>
       {/* 左侧区域：Logo 和 EduMind 标题 (固定宽度) */}
-      <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0 }}> {/* flexShrink:0 防止 Logo/Title 收缩 */}
+      <div
+        style={{ display: 'flex', alignItems: 'center', flexShrink: 0, cursor: 'pointer' }} // 添加 cursor: 'pointer' 提示可点击
+        onClick={() => onMenuItemClick({ key: 'projectIntro' })} // 点击Logo跳转到项目介绍页
+      >
         <img src={logo} alt="EduMind Logo" style={{ height: '48px', marginRight: '10px' }} />
         <Title level={3} style={{ margin: 0, marginRight: 30, whiteSpace: 'nowrap' }}>EduMind</Title>
       </div>
 
       {/* 中间弹性区域：导航菜单 (当空间不足时收缩) */}
-      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', minWidth: 0 }}> {/* minWidth:0 允许Flex项收缩 */}
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'center', minWidth: 0 }}>
         <Menu
           mode="horizontal"
           items={navMenuItems}
@@ -126,22 +133,19 @@ function AppHeader({ onGlobalSearch, onMenuItemClick }) {
       </div>
 
       {/* 右侧区域：全局搜索、通知、用户头像 */}
-      {/* 这个 div 应该具有优先级更高的收缩能力，因此 Search 组件放在其内部并控制其宽度 */}
-      <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0, marginLeft: 20 }}> {/* 添加marginLeft与导航分隔 */}
+      <div style={{ display: 'flex', alignItems: 'center', flexShrink: 0, marginLeft: 20 }}>
         {isSearchCollapsed ? (
-          // 当搜索框收缩时显示一个按钮
           <Button
             type="text"
             icon={<SearchOutlined />}
-            onClick={() => { /* 点击后可以展开搜索框或弹出搜索Modal */ console.log('搜索按钮被点击'); }}
-            style={{ marginRight: 8 }} // 保持与通知图标的间距
+            onClick={() => { console.log('搜索按钮被点击'); }}
+            style={{ marginRight: 8 }}
           />
         ) : (
-          // 否则显示完整的搜索框
           <Search
             placeholder="全局搜索"
             onSearch={onGlobalSearch}
-            style={{ width: 300, minWidth: 150, marginRight: 20 }} // 搜索框优先收缩宽度
+            style={{ width: 300, minWidth: 150, marginRight: 20 }}
             allowClear
           />
         )}
