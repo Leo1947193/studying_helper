@@ -3,87 +3,167 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Layout, Menu, Input, Button, Avatar, Dropdown, Space, List, Typography, Divider, Empty,
-  Upload, Card, Form, Select, Slider, Switch, notification, Tooltip, Spin, Modal, Tag,
+  Upload, Card, Form, Select, Slider, Switch, notification, Tooltip, Spin, Modal, Tag, Radio, Alert
 } from 'antd';
 import {
   SearchOutlined, PlusOutlined, UserOutlined, MessageOutlined, FileOutlined, UploadOutlined,
   SendOutlined, SettingOutlined, RobotOutlined, CopyOutlined, CheckOutlined, DownloadOutlined,
+  LoadingOutlined, FolderOutlined, HomeOutlined, DeleteOutlined, MoreOutlined, BarChartOutlined,
 } from '@ant-design/icons';
-import './App.css';
+import { useParams, useNavigate } from 'react-router-dom';
+import './App.css'; // 确保你的 CSS 文件被正确导入
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
 const { TextArea, Search } = Input;
 const { Option } = Select;
 
-// --- 后端 API 地址配置 ---
+// --- Backend API Base URL ---
 const BACKEND_BASE_URL = 'http://localhost:5000/api';
 
-function App() {
-  // --- 状态管理 ---
-  const [activePane, setActivePane] = useState('chat'); // 'chat', 'files', 'settings' (templates now in modal)
-  const [selectedChatId, setSelectedChatId] = useState(null); // 当前选中的对话ID
-  const [messages, setMessages] = useState([]); // 当前对话的消息列表
+// --- 定义思维导图图片路径 ---
+const COMPLETE_MINDMAP_IMAGE_PATH = '/1.png'; // 对应选择“否 (完整)”
+const FILTERED_MINDMAP_IMAGE_PATH = '/2.png'; // 对应选择“是 (重点)”
 
-  const [files, setFiles] = useState([]); // 文件列表
-  const [chatHistory, setChatHistory] = useState([]); // 对话历史列表
+
+function App() {
+  // --- Routing Hooks ---
+  const { projectId: urlProjectId } = useParams(); // Get project ID from URL
+  const navigate = useNavigate(); // For navigation
+
+  // --- Global State Management ---
+  const [currentProjectId, setCurrentProjectId] = useState(() => {
+    const savedProjectId = localStorage.getItem('currentProjectId');
+    return urlProjectId || savedProjectId || null;
+  });
+  const [projects, setProjects] = useState([]); // List of projects
+
+  // --- In-Project State Management (These states need to be reset or reloaded when switching projects) ---
+  const [activePane, setActivePane] = useState('chat'); // 'chat', 'files', 'settings'
+  const [selectedChatId, setSelectedChatId] = useState(null); // Current selected chat ID
+  const [messages, setMessages] = useState([]); // Messages for the current chat
+
+  const [files, setFiles] = useState([]); // List of files for the current project
+  const [chatHistory, setChatHistory] = useState([]); // Chat history for the current project
 
   const [chatInput, setChatInput] = useState('');
 
-  // 新增：当前对话关联的文件ID列表和文件元数据列表
+  // Current chat's associated file IDs and their metadata
   const [relatedFileIds, setRelatedFileIds] = useState([]);
   const [relatedFilesMeta, setRelatedFilesMeta] = useState([]);
 
-  // 新增：文件上传类型
-  const [uploadFileType, setUploadFileType] = useState('other'); // '课本', '往年卷', '答案', '其他'
+  // File upload type
+  const [uploadFileType, setUploadFileType] = useState('textbook');
 
-  // 新增：模板与方法管理相关状态
+  // Template & Method management states
   const [templatesMethods, setTemplatesMethods] = useState([]);
   const [loadingTemplatesMethods, setLoadingTemplatesMethods] = useState(false);
-  const [isTemplatesModalVisible, setIsTemplatesModalVisible] = useState(false); // 控制答题方法Modal的可见性
-  const [selectedFileForExtraction, setSelectedFileForExtraction] = useState(null); // 选中的用于提取模板的文件ID
+  const [isTemplatesModalVisible, setIsTemplatesModalVisible] = useState(false);
+  const [selectedFileForExtraction, setSelectedFileForExtraction] = useState(null);
   const [extractionLoading, setExtractionLoading] = useState(false);
   const [rewriteQuestion, setRewriteQuestion] = useState('');
-  const [originalAnswer, setOriginalAnswer] = useState('');
+  const [originalAnswer, setOriginalAnswer] = '';
   const [selectedMethodIndex, setSelectedMethodIndex] = useState(null);
-  const [rewrittenAnswer, setRewrittenAnswer] = useState('');
-  const [rewriteLoading, setRewriteLoading] = useState(false);
-  const [copiedIndex, setCopiedIndex] = useState(null); // 用于复制按钮的复制状态
+  const [rewrittenAnswer, setRewrittenAnswer] = '';
+  const [rewriteLoading, setLoadingRewrite] = useState(false);
 
-  // 加载状态
+  const [copiedIndex, setCopiedIndex] = useState(null); // State for copy feedback
+
+  // Dashboard/Mind Map states
+  const [isDashboardModalVisible, setIsDashboardModalVisible] = useState(false);
+  const [selectedFileForMindMap, setSelectedFileForMindMap] = useState(null);
+  // mindMapImageSrc 存储要显示的图片路径，null表示未显示
+  const [mindMapImageSrc, setMindMapImageSrc] = useState(null); 
+  const [loadingMindMap, setLoadingMindMap] = useState(false);
+  const [mindMapError, setMindMapError] = useState(null);
+
+  // Loading states
+  const [loadingProjects, setLoadingProjects] = useState(false);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [loadingChatHistory, setLoadingChatHistory] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
+  const [uploadingFile, setUploadingFile] = useState(false);
 
-  // 大模型设置
+  // LLM settings
   const [modelSettings, setModelSettings] = useState({
     temperature: 0.7,
-    model: 'deepseek-chat', // 默认使用 DeepSeek 的模型
+    model: 'deepseek-chat',
     persona: 'default',
     enableStreaming: false,
   });
 
-  // 文件预览相关状态
+  // File preview states
   const [isPreviewModalVisible, setIsPreviewModalVisible] = useState(false);
   const [currentPreviewFile, setCurrentPreviewFile] = useState(null);
   const [previewFileContent, setPreviewFileContent] = useState('');
   const [loadingPreviewContent, setLoadingPreviewContent] = useState(false);
 
-  // 引用详情Modal相关状态
+  // Citation detail Modal states
   const [isCitationModalVisible, setIsCitationModalVisible] = useState(false);
   const [currentCitationContent, setCurrentCitationContent] = useState('');
   const [currentCitationTitle, setCurrentCitationTitle] = useState('');
 
-  const messagesEndRef = useRef(null); // 用于自动滚动到底部
+  const messagesEndRef = useRef(null); 
 
-  // --- API 调用函数 ---
+  // --- API Call Functions ---
 
-  // 获取文件列表
+  // Fetch list of projects (保持不变)
+  const fetchProjects = useCallback(async () => {
+    setLoadingProjects(true);
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/projects`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
+      }
+      const data = await response.json();
+      setProjects(data);
+
+      let projectToLoadId = null;
+      if (urlProjectId) {
+        projectToLoadId = urlProjectId;
+      } else if (currentProjectId === null) {
+          // Stay on project list if explicitly navigated back
+      } else if (localStorage.getItem('currentProjectId')) {
+        projectToLoadId = localStorage.getItem('currentProjectId');
+      } else if (data.length > 0) {
+        projectToLoadId = data[0].id;
+      }
+
+      const projectExistsInFetchedData = projectToLoadId ? data.some(p => p.id === projectToLoadId) : false;
+
+      if (projectToLoadId && projectExistsInFetchedData) {
+        if (projectToLoadId !== currentProjectId) {
+          setCurrentProjectId(projectToLoadId);
+          navigate(`/projects/${projectToLoadId}`);
+        }
+      } else if (projectToLoadId && !projectExistsInFetchedData) {
+        notification.warn({ message: '指定的项目不存在或已删除，已返回项目列表。' });
+        setCurrentProjectId(null);
+        navigate('/');
+      } else if (data.length === 0 && currentProjectId !== null) {
+        notification.info({ message: '当前没有可用的项目，请创建新项目。' });
+        setCurrentProjectId(null);
+        navigate('/');
+      }
+    } catch (error) {
+      notification.error({
+        message: '加载项目失败',
+        description: `无法从后端获取项目列表: ${error.message}`,
+      });
+      console.error('Error fetching projects:', error);
+    } finally {
+      setLoadingProjects(false);
+    }
+  }, [urlProjectId, currentProjectId, navigate]);
+
+
+  // Fetch files for the current project (保持不变)
   const fetchFiles = useCallback(async () => {
+    if (!currentProjectId) return;
     setLoadingFiles(true);
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/files`);
+      const response = await fetch(`${BACKEND_BASE_URL}/projects/${currentProjectId}/files`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
       }
@@ -98,19 +178,20 @@ function App() {
     } finally {
       setLoadingFiles(false);
     }
-  }, []);
+  }, [currentProjectId]);
 
-  // 获取对话历史列表（只负责获取数据，不自动选择）
+  // Fetch chat history for the current project (保持不变)
   const fetchChatHistory = useCallback(async () => {
+    if (!currentProjectId) return [];
     setLoadingChatHistory(true);
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/chat-history`);
+      const response = await fetch(`${BACKEND_BASE_URL}/projects/${currentProjectId}/chat-history`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
       }
       const data = await response.json();
       setChatHistory(data);
-      return data; // 返回数据供调用者决定是否选择
+      return data;
     } catch (error) {
       notification.error({
         message: '加载对话历史失败',
@@ -121,11 +202,11 @@ function App() {
     } finally {
       setLoadingChatHistory(false);
     }
-  }, []);
+  }, [currentProjectId]);
 
-  // 获取特定对话的消息 (并加载关联的文件信息)
+  // Fetch messages for a specific chat within the current project (保持不变)
   const fetchChatMessages = useCallback(async (chatId) => {
-    if (!chatId) {
+    if (!currentProjectId || !chatId) {
       setMessages([]);
       setRelatedFileIds([]);
       setRelatedFilesMeta([]);
@@ -133,7 +214,7 @@ function App() {
     }
     setLoadingMessages(true);
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/chat/${chatId}/messages`);
+      const response = await fetch(`${BACKEND_BASE_URL}/projects/${currentProjectId}/chat/${chatId}/messages`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
       }
@@ -150,13 +231,18 @@ function App() {
     } finally {
       setLoadingMessages(false);
     }
-  }, []);
+  }, [currentProjectId]);
 
-  // 获取模板和方法列表
+  // Fetch templates and methods (保持不变)
   const fetchTemplatesMethods = useCallback(async () => {
+    if (!currentProjectId) {
+      console.warn("No project selected, cannot fetch templates.");
+      return;
+    }
+
     setLoadingTemplatesMethods(true);
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/templates/list`);
+      const response = await fetch(`${BACKEND_BASE_URL}/projects/${currentProjectId}/templates/list`);
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status} - ${response.statusText}`);
       }
@@ -171,57 +257,136 @@ function App() {
     } finally {
       setLoadingTemplatesMethods(false);
     }
-  }, []);
+  }, [currentProjectId]);
 
-  // --- useEffect 钩子，在组件加载时或状态变化时调用 API ---
+
+  // --- useEffect Hooks ---
+
+  // Fetch projects on initial load (保持不变)
   useEffect(() => {
-    fetchFiles();
-    const loadAndSelectInitialChatHistory = async () => {
-      const history = await fetchChatHistory();
-      if (history.length > 0 && selectedChatId === null) {
-        setSelectedChatId(history[0].id);
-      }
-    };
-    loadAndSelectInitialChatHistory();
-  }, [fetchFiles, fetchChatHistory]);
+    fetchProjects();
+  }, [fetchProjects]);
 
+  // Load project-specific data (files, chat history) when currentProjectId changes (保持不变)
+  useEffect(() => {
+    if (currentProjectId) {
+      fetchFiles();
+      const loadAndSelectInitialChatHistory = async () => {
+        const history = await fetchChatHistory();
+        if (history.length > 0 && selectedChatId === null) {
+          setSelectedChatId(history[0].id);
+        } else if (history.length === 0) {
+            setSelectedChatId(null);
+            setMessages([]);
+            setRelatedFileIds([]);
+            setRelatedFilesMeta([]);
+        }
+      };
+      loadAndSelectInitialChatHistory();
+    } else {
+        setFiles([]);
+        setChatHistory([]);
+        setSelectedChatId(null);
+        setMessages([]);
+        setRelatedFileIds([]);
+        setRelatedFilesMeta([]);
+    }
+  }, [currentProjectId, fetchFiles, fetchChatHistory, selectedChatId]);
+
+  // Load chat messages when selectedChatId changes (保持不变)
   useEffect(() => {
     fetchChatMessages(selectedChatId);
   }, [selectedChatId, fetchChatMessages]);
 
-  // 当答题方法Modal可见时，加载模板数据
+  // Load templates when the templates modal is visible and a project is selected (保持不变)
   useEffect(() => {
-    if (isTemplatesModalVisible) {
+    if (isTemplatesModalVisible && currentProjectId) {
       fetchTemplatesMethods();
     }
-  }, [isTemplatesModalVisible, fetchTemplatesMethods]); // 依赖于 isTemplatesModalVisible
+  }, [isTemplatesModalVisible, currentProjectId, fetchTemplatesMethods]);
 
-  // 自动滚动到底部
+  // Auto-scroll chat to bottom when messages change (保持不变)
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // --- 事件处理函数 ---
+  // Persist currentProjectId to localStorage (保持不变)
+  useEffect(() => {
+    if (currentProjectId) {
+      localStorage.setItem('currentProjectId', currentProjectId);
+    } else {
+      localStorage.removeItem('currentProjectId');
+    }
+  }, [currentProjectId]);
 
-  // 文件上传处理
-  const handleUpload = (info) => {
-    if (info.file.status === 'done') {
+  // --- 移除 OrgChart 渲染的 useEffect ---
+
+
+  // --- Event Handlers ---
+
+  // File upload handler (关键修改：通知消息更准确)
+  const handleUpload = async (options) => {
+    const { file, onSuccess, onError } = options;
+    if (!currentProjectId) {
+      notification.error({ message: '请先选择或创建一个项目再上传文件。' });
+      onError(new Error('No project selected.'));
+      return;
+    }
+
+    setUploadingFile(true);
+    notification.info({
+      message: '文件上传中...',
+      description: `${file.name} 正在上传，并将在后台进行处理。这可能需要一些时间。`,
+      duration: 0,
+      key: 'upload_processing',
+      icon: <LoadingOutlined />,
+    });
+
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('file_type_tag', uploadFileType); // <--- 关键修改：发送文件类型标签
+
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/projects/${currentProjectId}/upload`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status} - ${response.statusText}`);
+      }
+
+      const data = await response.json();
       notification.success({
         message: '文件上传成功',
-        description: `${info.file.name} (类型: ${uploadFileType}) 已成功上传。`,
+        description: `${file.name} 已成功上传。${uploadFileType === 'textbook' ? '作为教材，后端应跳过部分AI处理；' : uploadFileType === 'question' ? '作为题目，后端将不做额外处理。' : '后台处理已启动。'} 请稍后刷新文件列表查看处理结果。`,
+        duration: 5,
+        key: 'upload_processing',
       });
-      fetchFiles();
-    } else if (info.file.status === 'error') {
+      onSuccess(data, file);
+      // 延时刷新文件列表，给后端处理时间
+      setTimeout(() => fetchFiles(), 3000);
+    } catch (error) {
       notification.error({
         message: '文件上传失败',
-        description: `${info.file.name} 上传失败。` + (info.file.response ? `: ${info.file.response.error}` : ''),
+        description: `${file.name} 上传失败。` + error.message,
+        duration: 0,
+        key: 'upload_processing',
       });
-      console.error('Upload error:', info.file.error || info.file.response);
+      console.error('Upload error:', error);
+      onError(error);
+    } finally {
+      setUploadingFile(false);
     }
   };
 
-  // 发送消息
+  // Send message to LLM (保持不变)
   const handleSendMessage = async () => {
+    if (!currentProjectId) {
+      notification.error({ message: '请先选择或创建一个项目再进行对话。' });
+      return;
+    }
     if (chatInput.trim() === '') return;
     setSendingMessage(true);
 
@@ -236,7 +401,7 @@ function App() {
     setChatInput('');
 
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/chat`, {
+      const response = await fetch(`${BACKEND_BASE_URL}/projects/${currentProjectId}/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -251,7 +416,7 @@ function App() {
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || `HTTP error! status: ${response.status} - ${response.statusText}`);
+        throw new Error(errorData.aiResponse.text || `HTTP error! status: ${response.status} - ${response.statusText}`);
       }
 
       const data = await response.json();
@@ -294,15 +459,19 @@ function App() {
     }
   };
 
-  // 导出对话为 DOCX
+  // Export chat to DOCX (保持不变)
   const handleExportChat = async () => {
+    if (!currentProjectId) {
+      notification.error({ message: '请先选择或创建一个项目再导出对话。' });
+      return;
+    }
     if (!selectedChatId) {
       notification.warn({ message: '请先选择一个对话再导出。' });
       return;
     }
     notification.info({ message: '正在生成对话文档...' });
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/export-chat/${selectedChatId}`);
+      const response = await fetch(`${BACKEND_BASE_URL}/projects/${currentProjectId}/export-chat/${selectedChatId}`);
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
@@ -332,14 +501,19 @@ function App() {
   };
 
 
-  // 处理文件预览请求
+  // Handle file preview request (保持不变)
   const handlePreview = async (file) => {
+    if (!currentProjectId) {
+      notification.error({ message: '请先选择或创建一个项目再预览文件。' });
+      return;
+    }
     setCurrentPreviewFile(file);
     setIsPreviewModalVisible(true);
     setPreviewFileContent('');
     setLoadingPreviewContent(true);
 
-    const fileUrl = `${BACKEND_BASE_URL.replace('/api', '')}/uploads/${file.name}`;
+    const previewFileRelativePath = `${file.processed_dir_name}/${file.name}`;
+    const fileUrl = `${BACKEND_BASE_URL.replace('/api', '')}/uploads/${currentProjectId}/${previewFileRelativePath}`;
     console.log('Attempting to preview file from URL:', fileUrl);
 
     try {
@@ -368,35 +542,50 @@ function App() {
         message: '加载预览失败',
         description: `无法加载文件内容: ${error.message}。请检查文件是否存在于服务器或后端服务是否正常。`,
       });
+      setPreviewFileContent('ERROR_LOADING_PREVIEW');
       console.error('Error loading preview:', error);
     } finally {
       setLoadingPreviewContent(false);
     }
   };
 
-  // 关闭文件预览弹窗
+  // Close file preview modal (保持不变)
   const handlePreviewModalClose = () => {
     setIsPreviewModalVisible(false);
     setCurrentPreviewFile(null);
     setPreviewFileContent('');
   };
 
-  // 显示引用详情Modal
+  // Show citation detail modal (保持不变)
   const showCitationDetail = (citation) => {
     setCurrentCitationContent(citation.text);
     setCurrentCitationTitle(`引用 [${citation.id}]：${citation.doc_name}`);
     setIsCitationModalVisible(true);
   };
 
-  // --- 新功能：答题方法和模板提取相关操作 ---
+  // --- Template & Method Extraction Operations --- (保持不变)
   const handleExtractTemplatesFromFile = async () => {
+    if (!currentProjectId) {
+      notification.error({ message: '请先选择或创建一个项目再提取模板。' });
+      return;
+    }
     if (!selectedFileForExtraction) {
       notification.warn({ message: '请选择一个文件进行提取。' });
       return;
     }
+    const fileToExtract = files.find(f => f.id === selectedFileForExtraction);
+    if (!fileToExtract || !fileToExtract.is_processed) {
+      notification.warn({
+        message: '文件尚未完全处理',
+        description: '请选择一个已处理完成的文件（绿色“已处理”标签）来提取模板和方法。',
+        duration: 5,
+      });
+      return;
+    }
+
     setExtractionLoading(true);
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/templates/extract-from-file`, {
+      const response = await fetch(`${BACKEND_BASE_URL}/projects/${currentProjectId}/templates/extract-from-file`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ fileId: selectedFileForExtraction }),
@@ -410,7 +599,7 @@ function App() {
         message: '提取成功',
         description: data.message,
       });
-      fetchTemplatesMethods(); // 刷新列表
+      fetchTemplatesMethods();
     } catch (error) {
       notification.error({
         message: '提取失败',
@@ -423,14 +612,18 @@ function App() {
   };
 
   const handleRewriteAnswer = async () => {
+    if (!currentProjectId) {
+      notification.error({ message: '请先选择或创建一个项目再重写答案。' });
+      return;
+    }
     if (!rewriteQuestion.trim() || !originalAnswer.trim() || selectedMethodIndex === null) {
       notification.warn({ message: '请填写题目、原始答案并选择答题方法。' });
       return;
     }
-    setRewriteLoading(true);
-    setRewrittenAnswer(''); // 清空上次结果
+    setLoadingRewrite(true);
+    setRewrittenAnswer('');
     try {
-      const response = await fetch(`${BACKEND_BASE_URL}/templates/rewrite-answer`, {
+      const response = await fetch(`${BACKEND_BASE_URL}/projects/${currentProjectId}/templates/rewrite-answer`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -453,14 +646,14 @@ function App() {
       });
       console.error('Error rewriting answer:', error);
     } finally {
-      setRewriteLoading(false);
+      setLoadingRewrite(false);
     }
   };
 
   const handleCopy = (text, index) => {
     navigator.clipboard.writeText(text).then(() => {
       setCopiedIndex(index);
-      setTimeout(() => setCopiedIndex(null), 2000); // 2秒后恢复
+      setTimeout(() => setCopiedIndex(null), 2000);
       notification.success({message: "已复制到剪贴板！"});
     }).catch(err => {
       notification.error({message: "复制失败，请手动复制！"});
@@ -468,21 +661,335 @@ function App() {
     });
   };
 
-  // --- UI 渲染数据 ---
-  const siderMenuItems = [
-    { key: 'chat', icon: <MessageOutlined />, label: '对话历史' },
-    { key: 'files', icon: <FileOutlined />, label: '我的文件' },
-    { key: 'settings', icon: <SettingOutlined />, label: '应用设置' },
-    // 移除了 'templates' 菜单项，因为它现在由右侧的按钮触发Modal
-  ];
+  // --- Project List & Creation Functions --- (保持不变)
+  const handleCreateProject = () => {
+    console.log('Create new project button clicked!');
+    Modal.confirm({
+      title: '创建新项目',
+      content: (
+        <Input
+          placeholder="请输入项目名称"
+          id="new_project_name_input"
+          onPressEnter={(e) => {
+            const name = e.target.value.trim();
+            if (name) {
+              Modal.destroyAll();
+              confirmCreateProject(name);
+            } else {
+              notification.warn({ message: '项目名称不能为空。' });
+            }
+          }}
+        />
+      ),
+      okText: '创建',
+      cancelText: '取消',
+      onOk: () => {
+        const projectName = document.getElementById('new_project_name_input').value.trim();
+        if (projectName) {
+          return confirmCreateProject(projectName);
+        } else {
+          notification.warn({ message: '项目名称不能为空。' });
+          return Promise.reject('Project name empty');
+        }
+      },
+    });
+  };
 
+  const confirmCreateProject = async (projectName) => {
+    try {
+      const response = await fetch(`${BACKEND_BASE_URL}/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ projectName }),
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      notification.success({ message: `项目 '${data.project.name}' 创建成功！` });
+      setProjects(prev => [...prev, data.project]);
+      setCurrentProjectId(data.project.id);
+      navigate(`/projects/${data.project.id}`);
+    } catch (error) {
+      notification.error({
+        message: '创建项目失败',
+        description: `无法创建项目: ${error.message}`,
+      });
+      console.error('Error creating project:', error);
+      throw error;
+    }
+  };
+
+  const handleSelectProject = (projectId) => {
+    setCurrentProjectId(projectId);
+    const projectName = projects.find(p => p.id === projectId)?.name || projectId;
+    notification.success({ message: `已进入项目：${projectName}` });
+    navigate(`/projects/${projectId}`);
+  };
+
+  const handleDeleteProject = (projectId, projectName) => {
+    Modal.confirm({
+      title: `确认删除项目 "${projectName}" ?`,
+      content: '此操作将永久删除项目及其所有文件和对话记录，不可恢复！',
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const response = await fetch(`${BACKEND_BASE_URL}/projects/${projectId}`, {
+            method: 'DELETE',
+          });
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+          }
+          notification.success({ message: `项目 "${projectName}" 已成功删除。` });
+          setProjects(prev => prev.filter(p => p.id !== projectId));
+          if (currentProjectId === projectId) {
+            setCurrentProjectId(null);
+            navigate('/');
+          }
+        } catch (error) {
+          notification.error({
+            message: '删除项目失败',
+            description: `无法删除项目: ${error.message}`,
+          });
+          console.error('Error deleting project:', error);
+        }
+      },
+    });
+  };
+
+  // --- Dashboard/Mind Map Functions ---
+  const handleGenerateMindMapTrigger = () => {
+    if (!selectedFileForMindMap) {
+      notification.warn({ message: '请选择一个文件来生成思维导图。' });
+      return;
+    }
+
+    // 筛选：只允许选择“教材”类型的文件来触发图片显示
+    const fileToProcess = files.find(f => f.id === selectedFileForMindMap);
+    if (!fileToProcess || fileToProcess.file_type_tag !== 'textbook') {
+      notification.warn({
+        message: '文件类型不符',
+        description: '请选择一个“教材”文件来生成思维导图。',
+        duration: 5,
+      });
+      return;
+    }
+
+    // --- 恢复询问逻辑 ---
+    Modal.confirm({
+      title: '生成思维导图',
+      content: '您希望根据往年卷提取的重点来生成思维导图吗？\n（选择“是”将显示重点版图片，选择“否”将显示完整版图片。）',
+      okText: '是 (重点)',
+      cancelText: '否 (完整)',
+      onOk: () => handleGenerateMindMapClick(FILTERED_MINDMAP_IMAGE_PATH), // 点击“是”，显示 2.png
+      onCancel: () => handleGenerateMindMapClick(COMPLETE_MINDMAP_IMAGE_PATH), // 点击“否”，显示 1.png
+    });
+  };
+
+
+  // 关键修改：此函数现在接收图片路径作为参数
+  const handleGenerateMindMapClick = async (imagePath) => {
+    setLoadingMindMap(true);
+    setMindMapError(null);
+    setMindMapImageSrc(null); // 先清空当前图片，避免闪烁
+
+    try {
+      // 模拟加载时间
+      await new Promise(resolve => setTimeout(resolve, 500)); 
+      
+      // 设置 mindMapImageSrc 为接收到的图片路径
+      setMindMapImageSrc(imagePath); 
+      notification.success({ message: `思维导图已加载` });
+
+    } catch (error) {
+      setMindMapError(`加载思维导图图片失败: ${error.message}`);
+      notification.error({
+        message: '加载失败',
+        description: `无法加载思维导图图片: ${error.message}`,
+      });
+      console.error('Error loading mind map image:', error);
+    } finally {
+      setLoadingMindMap(false);
+    }
+  };
+
+
+  const currentProject = currentProjectId ? projects.find(p => p.id === currentProjectId) : null;
   const currentChatTitle = selectedChatId
     ? (chatHistory.find(c => c.id === selectedChatId)?.title || '加载中...')
     : '新的对话';
 
+  // --- Main Render Logic ---
+  // If no project is selected, show the project selection/creation interface
+  if (!currentProjectId) {
+    return (
+      <Layout style={{ minHeight: '100vh', background: '#f0f2f5' }}>
+        <Header style={{
+          display: 'flex',
+          alignItems: 'center',
+          padding: '0 20px',
+          background: '#fff',
+          borderBottom: '1px solid #f0f0f0',
+          zIndex: 1,
+        }}>
+          {/* 这里是项目选择界面的标题，可以保留文本或也替换为图片 */}
+          <Title level={3} style={{ margin: 0 }}>EduMind - 我的项目</Title>
+        </Header>
+        <Content
+          style={{
+            padding: '50px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            background: 'radial-gradient(circle at center, #e3f2fd 0%, #bbdefb 50%, #90caf9 100%)',
+            overflowY: 'auto',
+          }}
+        >
+          <div style={{
+            background: 'rgba(255, 255, 255, 0.85)',
+            backdropFilter: 'blur(5px)',
+            borderRadius: 16,
+            padding: '40px 60px',
+            boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+            maxWidth: '1200px',
+            width: '100%',
+            marginBottom: '40px',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+          }}>
+            <Title level={2} style={{ marginBottom: 20, color: '#212121', fontWeight: 600 }}>
+              欢迎来到 EduMind
+            </Title>
+            <Paragraph type="secondary" style={{ marginBottom: 40, fontSize: 16, textAlign: 'center', maxWidth: '600px' }}>
+              智学引擎（EduMind）—— 基于大模型与 RAG 技术的 AI 教育平台，构建动态知识图谱，提供智能出题、个性化学习路径规划及多模态智能批改服务，助力师生突破资源壁垒，高效实现‘学练考评’闭环，让教育更智能、更公平！
+            </Paragraph>
+
+            <Button
+              type="primary"
+              size="large"
+              icon={<PlusOutlined />}
+              onClick={handleCreateProject}
+              style={{ marginBottom: 30, padding: '10px 30px', height: 'auto', fontSize: 18 }}
+            >
+              创建新项目
+            </Button>
+            <Divider style={{ margin: '30px 0', borderColor: '#ccc', width: '80%' }}>或选择已有项目</Divider>
+          </div>
+
+          <Spin spinning={loadingProjects} style={{ width: '100%', maxWidth: '1200px' }}>
+            <div style={{
+              display: 'flex',
+              flexWrap: 'wrap',
+              gap: '24px',
+              justifyContent: 'flex-start',
+              alignItems: 'flex-start',
+              width: '100%',
+              padding: '0 12px',
+            }}>
+              {Array.isArray(projects) && projects.length > 0 ? (
+                projects.map(project => (
+                  <Card
+                    key={project.id}
+                    hoverable
+                    onClick={() => handleSelectProject(project.id)}
+                    style={{
+                      textAlign: 'center',
+                      padding: '20px 0',
+                      borderRadius: 12,
+                      boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+                      width: 220,
+                      height: 180,
+                      flexShrink: 0,
+                      flexGrow: 0,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      transition: 'all 0.3s ease',
+                      border: '1px solid #f0f0f0',
+                      position: 'relative',
+                    }}
+                    onMouseEnter={e => e.currentTarget.style.boxShadow = '0 12px 24px rgba(0,0,0,0.2)'}
+                    onMouseLeave={e => e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,0.08)'}
+                    bodyStyle={{
+                        flex: 1,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        padding: '10px 15px',
+                    }}
+                  >
+                    <div style={{ position: 'absolute', top: 8, right: 8 }}>
+                      <Dropdown
+                        overlay={
+                          <Menu>
+                            <Menu.Item
+                              key="delete"
+                              danger
+                              icon={<DeleteOutlined />}
+                              onClick={(info) => {
+                                info.domEvent.stopPropagation();
+                                handleDeleteProject(project.id, project.name);
+                              }}
+                            >
+                              删除项目
+                            </Menu.Item>
+                          </Menu>
+                        }
+                        trigger={['click']}
+                        placement="bottomRight"
+                      >
+                        <div onClick={e => e.stopPropagation()}>
+                          <Button
+                            icon={<MoreOutlined />}
+                            type="text"
+                            size="small"
+                          />
+                        </div>
+                      </Dropdown>
+                    </div>
+                    <FolderOutlined style={{ fontSize: '48px', color: '#1890ff', marginBottom: 10 }} />
+                    <Tooltip title={project.name}>
+                      <Title
+                        level={4}
+                        style={{
+                          margin: 0,
+                          whiteSpace: 'nowrap',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          width: '100%',
+                          padding: '0 5px',
+                          color: '#424242'
+                        }}
+                      >
+                        {project.name}
+                      </Title>
+                    </Tooltip>
+                    <Text type="secondary" style={{ fontSize: 12, marginTop: 5 }}>创建于: {project.created_at}</Text>
+                  </Card>
+                ))
+              ) : (
+                (!Array.isArray(projects) || projects.length === 0) && !loadingProjects && (
+                  <Empty description="暂无项目，快来创建第一个项目吧！" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+                )
+              )}
+            </div>
+          </Spin>
+        </Content>
+      </Layout>
+    );
+  }
+
+  // If a project is selected, display the main application interface
   return (
     <Layout style={{ minHeight: '100vh' }}>
-      {/* 顶部 Header */}
+      {/* Top Header */}
       <Header style={{
         display: 'flex',
         alignItems: 'center',
@@ -493,7 +1000,15 @@ function App() {
         zIndex: 1,
       }}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          <Title level={3} style={{ margin: 0, marginRight: 30 }}>AI智能助手</Title>
+          {/* --- 关键修改：将 Title 替换为 Image --- */}
+          <img
+            src="/edumind_logo.svg" // 图片路径，相对于 public 文件夹
+            alt="EduMind Logo"
+            style={{ height: '40px', marginRight: '20px', verticalAlign: 'middle' }} // 调整图片大小和位置
+          />
+          {currentProject && (
+            <Text strong style={{ fontSize: 18, marginRight: 20 }}>项目: {currentProject.name}</Text>
+          )}
           <Search
             placeholder="全局搜索"
             onSearch={value => console.log('全局搜索:', value)}
@@ -502,6 +1017,16 @@ function App() {
           />
         </div>
         <Space>
+          <Button
+            type="default"
+            icon={<HomeOutlined />}
+            onClick={() => {
+              setCurrentProjectId(null);
+              navigate('/');
+            }}
+          >
+            返回项目列表
+          </Button>
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -525,9 +1050,9 @@ function App() {
         </Space>
       </Header>
 
-      {/* 主布局：左侧 Sider + 中间/右侧 Content */}
+      {/* Main Layout: Left Sider + Middle/Right Content */}
       <Layout style={{ flex: 1, minHeight: 0 }}>
-        {/* 左侧 Sider */}
+        {/* Left Sider */}
         <Sider
           width={280}
           style={{
@@ -537,63 +1062,63 @@ function App() {
             minHeight: 0,
           }}
         >
-          {/* 主要导航菜单 */}
+          {/* Main Navigation Menu */}
           <Menu
             mode="inline"
             selectedKeys={[activePane]}
             onClick={e => setActivePane(e.key)}
             style={{ borderRight: 0, paddingBottom: 16 }}
           >
-            {siderMenuItems.map(item => (
-              <Menu.Item key={item.key} icon={item.icon}>
-                {item.label}
-              </Menu.Item>
-            ))}
+            <Menu.Item key="chat" icon={<MessageOutlined />}>对话历史</Menu.Item>
+            <Menu.Item key="files" icon={<FileOutlined />}>我的文件</Menu.Item>
+            <Menu.Item key="settings" icon={<SettingOutlined />}>应用设置</Menu.Item>
           </Menu>
 
           <Divider style={{ margin: '0 0 16px 0' }} />
 
-          {/* 文件上传区 */}
+          {/* File Upload Area */}
           <div style={{ padding: '0 16px 16px' }}>
             <Title level={5} style={{ marginTop: 0, marginBottom: 12, textAlign: 'center' }}>上传新文件</Title>
             <Form layout="vertical">
               <Form.Item label="文件类型">
-                <Select
+                <Radio.Group
+                  onChange={(e) => setUploadFileType(e.target.value)}
                   value={uploadFileType}
-                  onChange={setUploadFileType}
-                  style={{ width: '100%' }}
+                  buttonStyle="solid"
+                  style={{ width: '100%', marginBottom: 8 }}
                 >
-                  <Option value="textbook">课本</Option>
-                  <Option value="past_paper">往年卷</Option>
-                  <Option value="answer_key">答案</Option>
-                  <Option value="other">其他</Option>
-                </Select>
+                  <Radio.Button value="textbook" style={{ flex: 1, textAlign: 'center' }}>教材</Radio.Button>
+                  <Radio.Button value="question" style={{ flex: 1, textAlign: 'center' }}>题目</Radio.Button>
+                </Radio.Group>
               </Form.Item>
               <Form.Item>
                 <Upload
                   name="file"
-                  action={`${BACKEND_BASE_URL}/upload`}
-                  data={{ file_type_tag: uploadFileType }} // 传递文件类型标签
-                  onChange={handleUpload}
+                  action={`${BACKEND_BASE_URL}/projects/${currentProjectId}/upload`}
+                  customRequest={handleUpload}
                   showUploadList={false}
                   multiple={false}
+                  disabled={uploadingFile}
                 >
-                  <Button icon={<UploadOutlined />} block>选择并上传文件</Button>
+                  <Button icon={<UploadOutlined />} block loading={uploadingFile}>
+                    {uploadingFile ? '正在上传并处理...' : '选择并上传文件'}
+                  </Button>
                 </Upload>
               </Form.Item>
             </Form>
-            <Text type="secondary" style={{ fontSize: '12px', marginTop: 0, display: 'block', textAlign: 'center' }}>支持PDF, DOCX, TXT等格式</Text>
+            <Text type="secondary" style={{ fontSize: '12px', marginTop: 0, display: 'block', textAlign: 'center' }}>当前主要支持PDF文件（进行结构化处理）</Text>
           </div>
 
           <Divider style={{ margin: '0 0 16px 0' }} />
 
-          {/* 左侧侧边栏底部根据 activePane 渲染内容 */}
+          {/* Left Sider bottom content based on activePane */}
           <div style={{ padding: '0 16px 16px' }}>
             {activePane === 'files' && (
               <Spin spinning={loadingFiles}>
                 <Title level={5} style={{ marginTop: 0, marginBottom: 12 }}>我的文件</Title>
+                <Button block onClick={fetchFiles} style={{ marginBottom: 10 }}>刷新文件列表</Button>
                 <List
-                  dataSource={files}
+                  dataSource={Array.isArray(files) ? files : []}
                   renderItem={file => (
                     <List.Item
                       key={file.id}
@@ -628,13 +1153,23 @@ function App() {
                     >
                       <List.Item.Meta
                         avatar={<FileOutlined />}
-                        title={<a onClick={() => console.log('点击文件:', file.name)}>{file.name}</a>}
-                        description={<Text type="secondary">{file.size} - {file.uploadDate} (类型: {file.file_type_tag || '未知'})</Text>}
+                        title={<Text onClick={() => console.log('Click file:', file.name)}>{file.name}</Text>}
+                        description={
+                          <Text type="secondary">
+                            {file.size} - {file.uploadDate} (类型: {file.type || '未知'})
+                            {file.file_type_tag === 'textbook' && (
+                              file.is_processed ? <Tag color="green" style={{ marginLeft: 8 }}>已处理</Tag> : <Tag color="orange" style={{ marginLeft: 8 }}>处理中</Tag>
+                            )}
+                            {file.file_type_tag === 'question' && (
+                              <Tag color="blue" style={{ marginLeft: 8 }}>题目</Tag>
+                            )}
+                          </Text>
+                        }
                       />
                     </List.Item>
                   )}
                 />
-                {!files.length && !loadingFiles && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无文件" style={{ marginTop: 50 }} />}
+                {(!Array.isArray(files) || files.length === 0) && !loadingFiles && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无文件" style={{ marginTop: 50 }} />}
               </Spin>
             )}
             {activePane === 'chat' && (
@@ -666,15 +1201,13 @@ function App() {
                  {!chatHistory.length && !loadingChatHistory && <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无对话历史" style={{ marginTop: 50 }} />}
               </Spin>
             )}
-            {/* 'settings' 模式下，左侧这里不再显示内容，因为右侧栏会显示其详细内容 */}
             {activePane === 'settings' && (
               <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="在右侧管理应用设置" style={{ marginTop: 50 }} />
             )}
-            {/* templates 模式已经取消，所以这里不再显示 */}
           </div>
         </Sider>
 
-        {/* 中间主要内容区（大模型对话） */}
+        {/* Middle Main Content Area (LLM Chat) */}
         <Content style={{ display: 'flex', flexGrow: 1 }}>
           <div style={{
             flex: 1,
@@ -684,7 +1217,7 @@ function App() {
             flexDirection: 'column',
             height: '100%',
           }}>
-            {/* 对话标题和关联文档显示 */}
+            {/* Chat Title and Linked Documents Display */}
             <div style={{ padding: '16px 24px', borderBottom: '1px solid #e0e0e0', background: '#fff' }}>
               <Title level={4} style={{ margin: 0 }}>
                 {currentChatTitle}
@@ -713,13 +1246,15 @@ function App() {
                                   }}
                               >
                                   {file.name}
+                                  {file.is_processed ? <Tag color="green" style={{ marginLeft: 4 }} size="small">已处理</Tag> : <Tag color="orange" style={{ marginLeft: 4 }} size="small">处理中</Tag>}
+                                  {file.file_type_tag === 'question' && <Tag color="blue" style={{ marginLeft: 4 }} size="small">题目</Tag>}
                               </Tag>
                           ))}
                       </Space>
                   </div>
               )}
             </div>
-            {/* 消息显示区域 - 确保它内部滚动 */}
+            {/* Message Display Area - ensure it scrolls internally */}
             <div style={{ flex: 1, padding: '24px', overflowY: 'auto', minHeight: 0 }}>
               <Spin spinning={loadingMessages}>
                 {messages.length === 0 && !loadingMessages ? (
@@ -750,7 +1285,6 @@ function App() {
                         <Text strong>{msg.sender === 'user' ? '您' : 'AI助手'}</Text>
                         <Paragraph style={{ marginBottom: 0, marginTop: 8, color: msg.isError ? 'red' : 'inherit' }}>
                           {msg.content}
-                          {/* 仅为 AI 消息处理引用 */}
                           {msg.sender === 'ai' && msg.citations_data && msg.citations_data.length > 0 && (
                             <span style={{ marginLeft: 8 }}>
                               {msg.citations_data.map((citation, idx) => {
@@ -778,11 +1312,11 @@ function App() {
                     </div>
                   ))
                 )}
-                <div ref={messagesEndRef} /> {/* 滚动锚点 */}
+                <div ref={messagesEndRef} />
               </Spin>
             </div>
 
-            {/* 输入区 */}
+            {/* Input Area */}
             <div style={{ padding: '16px 24px', borderTop: '1px solid #e0e0e0', background: '#fff' }}>
               <TextArea
                 value={chatInput}
@@ -791,9 +1325,9 @@ function App() {
                 autoSize={{ minRows: 2, maxRows: 6 }}
                 onPressEnter={(e) => {
                   if (e.shiftKey) {
-                    // 不做任何操作，让默认行为处理换行
+                    // Do nothing, let default behavior handle newline
                   } else {
-                    e.preventDefault(); // 阻止默认的Enter换行
+                    e.preventDefault();
                     handleSendMessage();
                   }
                 }}
@@ -812,7 +1346,7 @@ function App() {
             </div>
           </div>
 
-          {/* 右侧功能/工具区 - 根据 activePane 渲染不同内容，并始终显示答题方法按钮 */}
+          {/* Right Function/Tool Area - renders different content based on activePane, always shows templates button */}
           <div style={{
             flex: '0 0 350px',
             background: '#fff',
@@ -821,21 +1355,32 @@ function App() {
             borderLeft: '1px solid #e0e0e0',
             minHeight: 0,
           }}>
-            {/* 始终显示的通用工具按钮 */}
+            {/* Always visible General Tools Button */}
             <Title level={4} style={{ marginTop: 0, marginBottom: 20 }}>通用工具</Title>
             <Space direction="vertical" style={{ width: '100%' }}>
               <Button
                 block
                 icon={<RobotOutlined />}
-                onClick={() => setIsTemplatesModalVisible(true)} // 点击打开答题方法Modal
+                onClick={() => setIsTemplatesModalVisible(true)}
               >
                 答题方法与模板
               </Button>
-              {/* 这里可以添加其他通用工具按钮 */}
+              <Button
+                block
+                icon={<BarChartOutlined />}
+                onClick={() => {
+                  setIsDashboardModalVisible(true);
+                  setMindMapImageSrc(null); // 清除旧的图片路径，以便在打开模态框时先显示Empty
+                  setSelectedFileForMindMap(null);
+                  setMindMapError(null);
+                }}
+              >
+                仪表盘
+              </Button>
             </Space>
             <Divider />
 
-            {/* 对话模式下的设置 */}
+            {/* Chat Mode Settings */}
             {activePane === 'chat' && (
               <>
                 <Title level={4} style={{ marginTop: 0, marginBottom: 20 }}>对话设置</Title>
@@ -883,30 +1428,28 @@ function App() {
               </>
             )}
 
-            {/* 文件模式和设置模式下的通用提示 */}
+            {/* File Mode and Settings Mode General Hints */}
             {(activePane === 'files' || activePane === 'settings') && (
               <>
-                {/* 这里的Title可以根据activePane动态改变，或者保持通用 */}
                 <Title level={4} style={{ marginTop: 0, marginBottom: 20 }}>辅助信息</Title>
                 <Empty description="请在左侧选择对应功能菜单" image={Empty.PRESENTED_IMAGE_SIMPLE} />
               </>
             )}
-            {/* 移除了旧的常用提示词和文件操作区域 */}
           </div>
         </Content>
       </Layout>
 
-      {/* 文件预览 Modal */}
+      {/* File Preview Modal */}
       <Modal
         title={currentPreviewFile ? `预览: ${currentPreviewFile.name}` : '文件预览'}
-        visible={isPreviewModalVisible}
+        open={isPreviewModalVisible}
         onCancel={handlePreviewModalClose}
         footer={[
-          currentPreviewFile && previewFileContent === 'UNSUPPORTED_PREVIEW' && (
+          currentPreviewFile && (previewFileContent === 'UNSUPPORTED_PREVIEW' || previewFileContent === 'ERROR_LOADING_PREVIEW') && (
             <Button
               key="download"
               type="primary"
-              href={`${BACKEND_BASE_URL.replace('/api', '')}/uploads/${currentPreviewFile.name}`}
+              href={`${BACKEND_BASE_URL.replace('/api', '')}/uploads/${currentProjectId}/${currentPreviewFile.processed_dir_name}/${currentPreviewFile.name}`}
               target="_blank"
               download={currentPreviewFile.name}
             >
@@ -946,11 +1489,11 @@ function App() {
                   }
                 />
               ) : currentPreviewFile.type.startsWith('image') ? (
-                <img src={previewFileContent} alt="文件预览" style={{ maxWidth: '100%', display: 'block', margin: '0 auto' }} />
+                <img src={previewFileContent} alt="File preview" style={{ maxWidth: '100%', display: 'block', margin: '0 auto' }} />
               ) : currentPreviewFile.type === 'pdf' ? (
                 <iframe
                   src={previewFileContent}
-                  title="PDF 文件预览"
+                  title="PDF File Preview"
                   width="100%"
                   height="500px"
                   frameBorder="0"
@@ -969,10 +1512,10 @@ function App() {
         </Spin>
       </Modal>
 
-      {/* 引用详情 Modal */}
+      {/* Citation Detail Modal */}
       <Modal
           title={currentCitationTitle}
-          visible={isCitationModalVisible}
+          open={isCitationModalVisible}
           onCancel={() => setIsCitationModalVisible(false)}
           footer={[
               <Button key="close" onClick={() => setIsCitationModalVisible(false)}>关闭</Button>,
@@ -988,14 +1531,14 @@ function App() {
           />
       </Modal>
 
-      {/* 答题方法与模板 Modal (新增) */}
+      {/* Answer Method & Template Modal */}
       <Modal
         title="答题方法与出题模板"
-        visible={isTemplatesModalVisible}
+        open={isTemplatesModalVisible}
         onCancel={() => setIsTemplatesModalVisible(false)}
-        footer={null} // 不显示默认Footer，所有按钮都在Form内部
-        width={800} // 根据内容调整宽度
-        bodyStyle={{ maxHeight: '80vh', overflowY: 'auto' }} // 可滚动
+        footer={null}
+        width={800}
+        bodyStyle={{ maxHeight: '80vh', overflowY: 'auto' }}
       >
         <Spin spinning={loadingTemplatesMethods || extractionLoading || rewriteLoading}>
           <Divider orientation="left" style={{ margin: '16px 0' }}>从文件提取</Divider>
@@ -1007,9 +1550,10 @@ function App() {
                 onChange={setSelectedFileForExtraction}
                 style={{ width: '100%' }}
               >
-                {files.map(file => (
+                {Array.isArray(files) && files.map(file => (
                   <Option key={file.id} value={file.id}>
                     {file.name} (类型: {file.file_type_tag || '未知'})
+                    {file.is_processed ? <Tag color="green" style={{ marginLeft: 8 }} size="small">已处理</Tag> : <Tag color="orange" style={{ marginLeft: 8 }} size="small">处理中</Tag>}
                   </Option>
                 ))}
               </Select>
@@ -1036,9 +1580,9 @@ function App() {
                   <Tooltip title="复制答题方法">
                     <Button
                       type="text"
-                      icon={copiedIndex === index ? <CheckOutlined style={{ color: 'green' }} /> : <CopyOutlined />}
+                      icon={copiedIndex === item.id || copiedIndex === index ? <CheckOutlined style={{ color: 'green' }} /> : <CopyOutlined />}
                       size="small"
-                      onClick={() => handleCopy(item.answer_method, index)}
+                      onClick={() => handleCopy(item.answer_method, item.id || index)}
                     />
                   </Tooltip>
                 ]}
@@ -1061,7 +1605,7 @@ function App() {
                 onChange={setSelectedMethodIndex}
                 style={{ width: '100%' }}
               >
-                {templatesMethods.map((item, index) => (
+                {Array.isArray(templatesMethods) && templatesMethods.map((item, index) => (
                   <Option key={index} value={index}>
                     模板: {item.question_template} | 方法: {item.answer_method}
                   </Option>
@@ -1106,6 +1650,77 @@ function App() {
               </Form.Item>
             )}
           </Form>
+        </Spin>
+      </Modal>
+
+      {/* New: Dashboard/Mind Map Modal */}
+      <Modal
+        title="仪表盘 - 思维导图"
+        open={isDashboardModalVisible}
+        onCancel={() => setIsDashboardModalVisible(false)}
+        footer={null}
+        width={900}
+        bodyStyle={{ maxHeight: '80vh', overflowY: 'auto' }}
+      >
+        <Spin spinning={loadingMindMap}>
+          <Form layout="vertical">
+            <Form.Item label="选择文件 (仅教材):">
+              <Select
+                placeholder="选择一个教材文件（仅用于触发显示）"
+                value={selectedFileForMindMap}
+                onChange={setSelectedFileForMindMap}
+                style={{ width: '100%' }}
+              >
+                {files.filter(f => f.file_type_tag === 'textbook').map(file => (
+                  <Option key={file.id} value={file.id}>
+                    {file.name} {file.is_processed ? '(已处理)' : '(未处理)'}
+                  </Option>
+                ))}
+              </Select>
+            </Form.Item>
+            <Form.Item>
+              <Button
+                type="primary"
+                onClick={handleGenerateMindMapTrigger} // 触发显示图片
+                loading={loadingMindMap}
+                block
+                disabled={!selectedFileForMindMap}
+              >
+                生成思维导图
+              </Button>
+            </Form.Item>
+          </Form>
+
+          <Divider orientation="left" style={{ margin: '16px 0' }}>生成的思维导图</Divider>
+          {mindMapError && (
+            <Alert message="错误" description={mindMapError} type="error" showIcon style={{ marginBottom: 15 }} />
+          )}
+          {/* 关键修改：根据 mindMapImageSrc 状态渲染图片 */}
+          {mindMapImageSrc ? ( // 如果 mindMapImageSrc 不为 null，则显示图片
+            <div style={{
+              height: '500px',
+              width: '100%',
+              overflow: 'auto',
+              display: 'flex', /* 使图片居中 */
+              justifyContent: 'center', /* 使图片水平居中 */
+              alignItems: 'center', /* 使图片垂直居中 */
+              border: '1px solid #d9d9d9',
+              background: '#f8f8f8', /* 设置一个背景色，防止图片是透明的 */
+            }}>
+              <img
+                src={mindMapImageSrc} // 使用 mindMapImageSrc 动态加载图片
+                alt="思维导图"
+                style={{
+                  maxWidth: '100%',   // 确保图片宽度不超过容器
+                  maxHeight: '100%',  // 确保图片高度不超过容器
+                  objectFit: 'contain' // 保持图片比例，适应容器
+                }}
+              />
+            </div>
+          ) : (
+            // 否则显示 Empty 提示
+            !loadingMindMap && !mindMapError && <Empty description="选择文件以生成思维导图。" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+          )}
         </Spin>
       </Modal>
     </Layout>

@@ -1,0 +1,27 @@
+
+<svg width="220" height="64" viewBox="0 0 220 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- 图标基础结构 -->
+  <circle cx="32" cy="32" r="4" fill="#2F54EB"/>
+  <line x1="32" y1="32" x2="50" y2="18" stroke="#2F54EB" stroke-width="2"/>
+  <line x1="32" y1="32" x2="50" y2="46" stroke="#2F54EB" stroke-width="2"/>
+  <line x1="32" y1="32" x2="14" y2="18" stroke="#2F54EB" stroke-width="2"/>
+  <line x1="32" y1="32" x2="14" y2="46" stroke="#2F54EB" stroke-width="2"/>
+  <circle cx="50" cy="18" r="3" fill="#2F54EB"/>
+  <circle cx="50" cy="46" r="3" fill="#2F54EB"/>
+  <circle cx="14" cy="18" r="3" fill="#2F54EB"/>
+  <circle cx="14" cy="46" r="3" fill="#2F54EB"/>
+  <path d="M38 12C48 16 52 26 48 36C44 46 34 52 28 50" stroke="#2F54EB" stroke-width="2" stroke-linecap="round" fill="none"/>
+  <path d="M26 14C18 16 14 26 16 34C18 42 24 48 28 50" stroke="#2F54EB" stroke-width="2" stroke-linecap="round" fill="none"/>
+
+  <!-- 顶部“生长中”的知识点结构 -->
+  <circle cx="32" cy="6" r="2" fill="#1890FF"/>
+  <line x1="32" y1="10" x2="32" y2="14" stroke="#1890FF" stroke-width="1.5"/>
+  <circle cx="26" cy="10" r="1.5" fill="#1890FF"/>
+  <line x1="27" y1="12" x2="29" y2="16" stroke="#1890FF" stroke-width="1"/>
+  <circle cx="38" cy="10" r="1.5" fill="#1890FF"/>
+  <line x1="37" y1="12" x2="35" y2="16" stroke="#1890FF" stroke-width="1"/>
+
+  <!-- 文本 Logo -->
+  <text x="70" y="41" font-family="Arial, sans-serif" font-size="28" fill="#2F54EB" font-weight="bold">Edu</text>
+  <text x="120" y="41" font-family="Arial, sans-serif" font-size="28" fill="#1890FF" font-weight="normal">Mind</text>
+</svg>

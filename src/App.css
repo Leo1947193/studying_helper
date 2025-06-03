@@ -10,3 +10,75 @@ body {
 #root {
   min-height: 100vh;
 }
+#chart-container {
+  /* 确保这个容器有足够的尺寸 */
+  height: 100%; /* 或者一个固定的高度，例如 500px */
+  width: 100%;
+  overflow: auto; /* 允许内部图表滚动 */
+  background: #fdfdfd; /* 浅色背景，与节点区分 */
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  box-sizing: border-box; /* 确保 padding 不会增加总宽度 */
+}
+
+/* OrgChart 节点基础样式 */
+.orgchart .node {
+  /* 重要：重置 orgchart 默认的一些行内样式 */
+  width: auto !important; /* 让宽度自适应内容 */
+  min-width: 150px; /* 最小宽度，防止内容过短时节点过窄 */
+  max-width: 250px; /* 最大宽度，防止内容过长时节点过宽，会换行 */
+  padding: 0px !important; /* 清除默认内边距 */
+  box-sizing: border-box;
+  
+  /* 节点背景和边框 */
+  background-color: #ffffff;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px; /* 圆角 */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08); /* 柔和的阴影 */
+  transition: all 0.2s ease-in-out;
+}
+
+/* 鼠标悬停时的节点样式 */
+.orgchart .node:hover {
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15); /* 提升阴影效果 */
+  transform: translateY(-2px); /* 轻微上浮效果 */
+  background-color: #e6f7ff; /* Ant Design primary color light background */
+}
+
+/* 自定义节点内容 .name 的样式 */
+.orgchart .node .name {
+  font-size: 14px; /* 字体大小 */
+  font-weight: 500; /* 字体粗细 */
+  color: #333333; /* 深色文本 */
+  padding: 10px 15px; /* 内边距 */
+  text-align: center; /* 文本居中 */
+  line-height: 1.4;
+  white-space: normal; /* 允许文本换行 */
+  word-break: break-word; /* 单词内部断行 */
+}
+
+/* OrgChart 连接线和展开/折叠符号的颜色 */
+.orgchart .lines .topLine {
+  border-top-color: #1890ff; /* Ant Design 主题蓝色 */
+}
+
+.orgchart .lines .rightLine,
+.orgchart .lines .leftLine {
+  border-left-color: #1890ff; /* Ant Design 主题蓝色 */
+}
+
+.orgchart .down {
+  background-color: #1890ff; /* Ant Design 主题蓝色 */
+}
+
+/* 禁用OrgChart的选择功能，避免默认蓝色选中框 */
+.orgchart .node.selected {
+  background-color: #e6f7ff !important; /* 轻微选中背景 */
+  border-color: #91d5ff !important; /* 选中边框颜色 */
+  box-shadow: 0 0 0 2px #91d5ff !important; /* 选中时的光晕效果 */
+}
+
+/* 确保Ant Design组件在需要时有正确的间距 */
+.ant-space {
+  gap: 8px; /* Default Ant Design space gap */
+}
