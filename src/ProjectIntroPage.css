@@ -1,0 +1,137 @@
+/* src/ProjectIntroPage.css */
+
+.project-intro-layout {
+  background: #f0f2f5; /* 浅灰色背景，与Ant Design默认色调保持一致 */
+  padding: 20px;
+}
+
+.project-intro-content {
+  max-width: 1200px; /* 限制内容最大宽度，居中显示 */
+  margin: 0 auto;
+  background: #fff;
+  padding: 40px;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.hero-section {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.project-title {
+  font-size: 3.5em; /* 较大的标题 */
+  color: #1890ff; /* Ant Design 主题蓝色 */
+  margin-bottom: 10px;
+}
+
+.project-slogan {
+  font-size: 1.5em;
+  color: #595959;
+  margin-bottom: 30px;
+}
+
+.hero-buttons .ant-btn {
+  margin: 0 10px;
+}
+
+.section {
+  margin-bottom: 50px;
+  text-align: center;
+}
+
+.section-title {
+  font-size: 2.2em;
+  color: #333;
+  margin-bottom: 30px;
+  position: relative;
+  display: inline-block;
+}
+
+.section-title::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 4px;
+  background-color: #1890ff;
+  border-radius: 2px;
+}
+
+/* 统一卡片的悬停效果样式 */
+.feature-card,
+.value-card { /* 添加 .value-card */
+  text-align: left;
+  border-radius: 8px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+  height: 100%; /* 确保卡片高度一致 */
+}
+
+.feature-card:hover,
+.value-card:hover { /* 添加 .value-card:hover */
+  transform: translateY(-5px);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+}
+
+.feature-card .ant-card-head-title {
+  color: #1890ff;
+}
+
+.value-props {
+  gap: 20px; /* 卡片之间的间距 */
+}
+
+.value-card {
+  flex: 1; /* 让卡片在 Flex 容器中均匀分布 */
+  min-width: 280px; /* 最小宽度 */
+  max-width: 45%; /* 最大宽度，适应两列布局 */
+  /* text-align: left; /* 这个已经在 .feature-card, .value-card 中定义，可以移除 */
+  /* border-radius: 8px; /* 这个已经在 .feature-card, .value-card 中定义，可以移除 */
+  /* box-shadow: 0 1px 6px rgba(0, 0, 0, 0.08); /* 统一到 .feature-card, .value-card 的 box-shadow */
+}
+
+.value-card .ant-typography-paragraph {
+    min-height: 80px; /* 确保段落有最小高度，避免内容过少时卡片高度差异大 */
+}
+
+.beta-section {
+  text-align: center;
+  margin-top: 50px;
+  padding: 40px 20px;
+  background: linear-gradient(135deg, #e6f7ff, #bae7ff); /* 渐变背景 */
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.beta-section .ant-typography-title {
+  color: #0050b3; /* 深蓝色 */
+}
+
+.beta-section .ant-typography-paragraph {
+  font-size: 1.1em;
+  color: #333;
+  margin-bottom: 25px;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .project-title {
+    font-size: 2.5em;
+  }
+
+  .project-slogan {
+    font-size: 1.2em;
+  }
+
+  .hero-buttons .ant-btn {
+    margin: 10px 0;
+    width: 80%; /* 小屏幕上按钮占满宽度 */
+  }
+
+  .value-card {
+    max-width: 100%; /* 小屏幕上单列布局 */
+  }
+}

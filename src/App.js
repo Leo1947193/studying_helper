@@ -10,8 +10,10 @@ import {
   SendOutlined, SettingOutlined, RobotOutlined, CopyOutlined, CheckOutlined, DownloadOutlined,
   LoadingOutlined, FolderOutlined, HomeOutlined, DeleteOutlined, MoreOutlined, BarChartOutlined,
 } from '@ant-design/icons';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Routes, Route } from 'react-router-dom'; // 导入 Routes 和 Route
+import ProjectIntroPage from './ProjectIntroPage';
 import './App.css'; // 确保你的 CSS 文件被正确导入
+import './ProjectIntroPage.css'; // 确保项目介绍页面的样式被正确导入
 
 const { Header, Sider, Content } = Layout;
 const { Title, Text, Paragraph } = Typography;
@@ -62,9 +64,9 @@ function App() {
   const [selectedFileForExtraction, setSelectedFileForExtraction] = useState(null);
   const [extractionLoading, setExtractionLoading] = useState(false);
   const [rewriteQuestion, setRewriteQuestion] = useState('');
-  const [originalAnswer, setOriginalAnswer] = '';
+  const [originalAnswer, setOriginalAnswer] = useState(''); // 修正：这里少了一个 useState
   const [selectedMethodIndex, setSelectedMethodIndex] = useState(null);
-  const [rewrittenAnswer, setRewrittenAnswer] = '';
+  const [rewrittenAnswer, setRewrittenAnswer] = useState('');
   const [rewriteLoading, setLoadingRewrite] = useState(false);
 
   const [copiedIndex, setCopiedIndex] = useState(null); // State for copy feedback
@@ -73,7 +75,7 @@ function App() {
   const [isDashboardModalVisible, setIsDashboardModalVisible] = useState(false);
   const [selectedFileForMindMap, setSelectedFileForMindMap] = useState(null);
   // mindMapImageSrc 存储要显示的图片路径，null表示未显示
-  const [mindMapImageSrc, setMindMapImageSrc] = useState(null); 
+  const [mindMapImageSrc, setMindMapImageSrc] = useState(null);
   const [loadingMindMap, setLoadingMindMap] = useState(false);
   const [mindMapError, setMindMapError] = useState(null);
 
@@ -104,7 +106,7 @@ function App() {
   const [currentCitationContent, setCurrentCitationContent] = useState('');
   const [currentCitationTitle, setCurrentCitationTitle] = useState('');
 
-  const messagesEndRef = useRef(null); 
+  const messagesEndRef = useRef(null);
 
   // --- API Call Functions ---
 
@@ -799,10 +801,10 @@ function App() {
 
     try {
       // 模拟加载时间
-      await new Promise(resolve => setTimeout(resolve, 500)); 
-      
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       // 设置 mindMapImageSrc 为接收到的图片路径
-      setMindMapImageSrc(imagePath); 
+      setMindMapImageSrc(imagePath);
       notification.success({ message: `思维导图已加载` });
 
     } catch (error) {
@@ -1000,11 +1002,12 @@ function App() {
         zIndex: 1,
       }}>
         <div style={{ display: 'flex', alignItems: 'center' }}>
-          {/* --- 关键修改：将 Title 替换为 Image --- */}
+          {/* --- 关键修改：将 Title 替换为 Image 并添加 onClick 事件 --- */}
           <img
             src="/edumind_logo.svg" // 图片路径，相对于 public 文件夹
             alt="EduMind Logo"
-            style={{ height: '40px', marginRight: '20px', verticalAlign: 'middle' }} // 调整图片大小和位置
+            style={{ height: '40px', marginRight: '20px', verticalAlign: 'middle', cursor: 'pointer' }} // 调整图片大小和位置，添加 pointer 样式
+            onClick={() => navigate('/intro')} // 添加点击事件，导航到 ProjectIntroPage
           />
           {currentProject && (
             <Text strong style={{ fontSize: 18, marginRight: 20 }}>项目: {currentProject.name}</Text>
